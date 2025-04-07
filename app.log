@@ -1,0 +1,32 @@
+2025-04-07 16:12:59,518 - INFO - Default file path: D:/forimport.csv
+2025-04-07 16:12:59,523 - INFO - Loaded CSV file: D:/forimport.csv
+2025-04-07 16:13:00,699 - INFO - CSV loaded successfully!
+2025-04-07 16:13:03,532 - INFO - Packing process completed successfully.
+2025-04-07 16:48:43,321 - INFO - Default file path: D:/forimport.csv  ; \u0e23\u0e30\u0e1a\u0e38 Path \u0e41\u0e1a\u0e1a\u0e40\u0e15\u0e47\u0e21
+2025-04-07 16:48:51,016 - INFO - Loaded CSV file: D:/forimport.csv
+2025-04-07 16:48:52,132 - INFO - CSV loaded successfully!
+2025-04-07 16:48:53,206 - INFO - Packing process completed successfully.
+2025-04-07 16:49:48,140 - INFO - Default file path: D:/forimport.csv  ; \u0e23\u0e30\u0e1a\u0e38 Path \u0e41\u0e1a\u0e1a\u0e40\u0e15\u0e47\u0e21
+2025-04-07 16:50:40,812 - ERROR - An unexpected error occurred: No option 'd:/forimport.csv' in section: 'Paths'
+2025-04-07 16:50:53,936 - ERROR - An unexpected error occurred: RawConfigParser.get() missing 1 required positional argument: 'option'
+2025-04-07 16:53:50,976 - INFO - Default file path: c:\Users\witsarut_s\Desktop\KRM\25\EurekaLoader\./forimport.csv
+2025-04-07 16:53:50,977 - INFO - Default file path: c:\Users\witsarut_s\Desktop\KRM\25\EurekaLoader\./forimport.csv
+2025-04-07 16:53:50,981 - INFO - Loaded CSV file: c:\Users\witsarut_s\Desktop\KRM\25\EurekaLoader\./forimport.csv
+2025-04-07 16:53:52,251 - INFO - CSV loaded successfully!
+2025-04-07 16:53:58,839 - INFO - Packing process completed successfully.
+2025-04-07 16:59:36,830 - INFO - Default file path: c:\Users\witsarut_s\Desktop\KRM\25\EurekaLoader\./forimport.csv
+2025-04-07 16:59:36,830 - INFO - Default file path: c:\Users\witsarut_s\Desktop\KRM\25\EurekaLoader\./forimport.csv
+2025-04-07 16:59:36,833 - INFO - Loaded CSV file: c:\Users\witsarut_s\Desktop\KRM\25\EurekaLoader\./forimport.csv
+2025-04-07 16:59:38,027 - INFO - CSV loaded successfully!
+2025-04-07 17:04:06,335 - INFO - Default file path: c:\Users\witsarut_s\Desktop\KRM\25\EurekaLoader\./forimport.csv
+2025-04-07 17:04:06,336 - INFO - Default file path: c:\Users\witsarut_s\Desktop\KRM\25\EurekaLoader\./forimport.csv
+2025-04-07 17:04:06,339 - INFO - Loaded CSV file: c:\Users\witsarut_s\Desktop\KRM\25\EurekaLoader\./forimport.csv
+2025-04-07 17:04:07,519 - INFO - CSV loaded successfully!
+2025-04-07 17:04:09,351 - ERROR - Please enter container dimensions.
+2025-04-07 17:04:15,068 - INFO - Packing process completed successfully.
+2025-04-07 17:04:17,539 - INFO - Results exported to CSV files.
+2025-04-07 17:11:19,739 - INFO - Default file path: c:\Users\witsarut_s\Desktop\KRM\25\EurekaLoader\./forimport.csv
+2025-04-07 17:11:19,739 - INFO - Using default file path: c:\Users\witsarut_s\Desktop\KRM\25\EurekaLoader\./forimport.csv
+2025-04-07 17:11:19,743 - INFO - Loaded CSV file: c:\Users\witsarut_s\Desktop\KRM\25\EurekaLoader\./forimport.csv
+2025-04-07 17:11:20,876 - INFO - CSV loaded successfully!
+2025-04-07 17:11:22,113 - INFO - Packing process completed successfully.

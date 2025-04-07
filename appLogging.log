@@ -1,0 +1,12 @@
+2025-04-07 17:29:01,086 - INFO - Default file path: c:\Users\witsarut_s\Desktop\KRM\25\EurekaLoader\./forimport.csv
+2025-04-07 17:29:01,086 - INFO - Using default file path: c:\Users\witsarut_s\Desktop\KRM\25\EurekaLoader\./forimport.csv
+2025-04-07 17:29:01,089 - INFO - Loaded CSV file: c:\Users\witsarut_s\Desktop\KRM\25\EurekaLoader\./forimport.csv
+2025-04-07 17:29:02,159 - INFO - CSV loaded successfully!
+2025-04-07 17:29:03,560 - ERROR - Please enter container dimensions.
+2025-04-07 17:29:04,702 - WARNING - No results to export.
+2025-04-07 17:29:09,609 - INFO - Packing process completed successfully.
+2025-04-07 17:29:18,746 - INFO - Packing process completed successfully.
+2025-04-07 17:29:25,081 - INFO - Packing process completed successfully.
+2025-04-07 17:29:31,021 - INFO - Packing process completed successfully.
+2025-04-07 17:29:36,710 - INFO - Packing process completed successfully.
+2025-04-07 17:29:45,537 - INFO - Results exported to CSV files.
