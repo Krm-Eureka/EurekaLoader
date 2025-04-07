@@ -1,0 +1,10 @@
+SKU,Length,Width,Height,Priority,Reason
+C46,445,185,175,61,Out of container bounds
+C47,500,300,235,62,Out of container bounds
+JP4,280,215,220,63,Out of container bounds
+C49,220,195,155,67,Out of container bounds
+C50,220,195,155,68,Out of container bounds
+C51,220,195,155,69,Out of container bounds
+C52,220,195,155,70,Out of container bounds
+C53,220,195,155,71,Out of container bounds
+C54,445,185,175,72,Out of container bounds
