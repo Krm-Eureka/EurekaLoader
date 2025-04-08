@@ -20,19 +20,30 @@ config = configparser.ConfigParser()
 
 # Determine the base directory
 if getattr(sys, 'frozen', False):
-    base_dir = os.path.dirname(sys.executable)  # โฟลเดอร์เดียวกับไฟล์ .exe
+    base_dir = "D:/EurekaLoader"
 else:
     base_dir = os.path.dirname(os.path.abspath(__file__))
 
+# อ่าน base_dir จาก config.ini
+base_dir = config.get("Paths", "base_dir", fallback="D:/EurekaLoader")
 
 config_path = os.path.join(base_dir, "config.ini")
 config.read(config_path, encoding="utf-8")
+# Check if the base directory exists
+if not os.path.exists(base_dir):
+    os.makedirs(base_dir)  # Create the directory if it doesn't exist
+
 # Check if the config file exists
 if not os.path.exists(config_path):
     # Create a default config file if it doesn't exist
     with open(config_path, "w", encoding="utf-8") as config_file:
         config.add_section("Paths")
-        config.set("Paths", "default_csv_path", "default.csv")
+        config.set("Paths", "base_dir", "D:/EurekaLoader")
+        config.set("Paths", "default_csv_path", "./Input/forimport.csv")
+        config.add_section("UI")
+        config.set("UI", "background_color", "#f0f0f0")
+        config.set("UI", "window_width", "800")
+        config.set("UI", "window_height", "600")
         config.write(config_file)
         print(f"Config file created at {config_path}. Please edit it before running the program.")
         sys.exit(1)
@@ -51,7 +62,7 @@ formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
 console_handler.setFormatter(formatter)
 logging.getLogger().addHandler(console_handler)
 
-GAP = 0  # mm
+GAP = 20  # mm
 
 
 class Box:
@@ -452,6 +463,14 @@ class PackingApp:
         self.export_button.bind("<Enter>", self.on_hover)
         self.export_button.bind("<Leave>", self.on_leave)
 
+        # Explore Button
+        self.explore_button = tk.Button(
+            input_frame, text="Explore", command=self.open_explorer
+        )
+        self.explore_button.grid(row=6, column=0, columnspan=2, pady=10, sticky="ew")
+        self.explore_button.bind("<Enter>", self.on_hover)
+        self.explore_button.bind("<Leave>", self.on_leave)
+
         # Visualization Frame
         self.visualization_frame = tk.Frame(master)
         self.visualization_frame.grid(row=0, column=1, sticky="nsew", padx=10, pady=10)
@@ -476,63 +495,48 @@ class PackingApp:
 
     def load_csv(self):
         try:
-            # อ่านค่า default_csv_path จาก config.ini
-            default_filepath = config.get("Paths", "default_csv_path")
-            if not os.path.isabs(default_filepath):
-                # ถ้าเป็น Path แบบ Relative ให้แปลงเป็น Absolute Path
-                default_filepath = os.path.join(base_dir, default_filepath)
+            # กำหนดพาธไฟล์ CSV โดยตรง
+            filepath = os.path.join(base_dir, "Input", "forimport.csv")
 
-            logging.info(f"Default file path: {default_filepath}")
-            # Check if the default file exists
-            if not os.path.exists(default_filepath):
-                messagebox.showerror("Error", f"File not found: {default_filepath}")
-                logging.error(f"File not found: {default_filepath}")
+            if not os.path.exists(filepath):
+                messagebox.showerror("Error", f"File not found: {filepath}")
+                logging.error(f"File not found: {filepath}")
                 return
 
-            # If the default file exists, use it
-            filepath = default_filepath
-            logging.info(f"Using default file path: {default_filepath}")
-            
-            if filepath:
-                try:
-                    df = pd.read_csv(filepath, encoding="utf-8")
-                    logging.info(f"Loaded CSV file: {filepath}")
-                    if df.empty:
-                        messagebox.showerror("Error", "CSV file is empty.")
-                        logging.error("CSV file is empty.")
+            try:
+                df = pd.read_csv(filepath, encoding="utf-8")
+                logging.info(f"Loaded CSV file: {filepath}")
+                if df.empty:
+                    messagebox.showerror("Error", "CSV file is empty.")
+                    logging.error("CSV file is empty.")
+                    return
+                required_columns = ["Priority", "BoxTypes", "Width", "Length", "Height", "Conveyor", "QTY"]
+                for col in required_columns:
+                    if col not in df.columns:
+                        messagebox.showerror("Error", f"Missing required column: {col}")
+                        logging.error(f"Missing required column: {col}")
                         return
-                    required_columns = ["Length", "Width", "Height", "BoxTypes", "Priority"]
-                    for col in required_columns:
-                        if col not in df.columns:
-                            messagebox.showerror(
-                                "Error", f"Missing required column: {col}"
-                            )
-                            logging.error(f"Missing required column: {col}")
-                            return
-                    self.boxes_to_place = []
-                    for index, row in df.iterrows():
-                        box = Box(
-                            length=row["Length"],
-                            width=row["Width"],
-                            height=row["Height"],
-                            sku=row["BoxTypes"],
-                            priority=row["Priority"],
-                        )
-                        self.boxes_to_place.append(box)
-                    messagebox.showinfo("Success", "CSV loaded successfully!")
-                    logging.info("CSV loaded successfully!")
-                except pd.errors.EmptyDataError:
-                    messagebox.showerror("Error", f"File is empty: {filepath}")
-                    logging.error(f"File is empty: {filepath}")
-                except pd.errors.ParserError:
-                    messagebox.showerror("Error", f"Error parsing CSV file: {filepath}")
-                    logging.error(f"Error parsing CSV file: {filepath}")
-                except FileNotFoundError:
-                    messagebox.showerror("Error", f"File not found: {filepath}")
-                    logging.error(f"File not found: {filepath}")
-                except Exception as e:
-                    messagebox.showerror("Error", f"Error loading CSV: {e}")
-                    logging.error(f"Error loading CSV: {e}")
+                self.boxes_to_place = []
+                for index, row in df.iterrows():
+                    box = Box(
+                        length=row["Length"],
+                        width=row["Width"],
+                        height=row["Height"],
+                        sku=row["BoxTypes"],
+                        priority=row["Priority"],
+                    )
+                    self.boxes_to_place.append(box)
+                messagebox.showinfo("Success", "CSV loaded successfully!")
+                logging.info("CSV loaded successfully!")
+            except pd.errors.EmptyDataError:
+                messagebox.showerror("Error", f"File is empty: {filepath}")
+                logging.error(f"File is empty: {filepath}")
+            except pd.errors.ParserError:
+                messagebox.showerror("Error", f"Error parsing CSV file: {filepath}")
+                logging.error(f"Error parsing CSV file: {filepath}")
+            except Exception as e:
+                messagebox.showerror("Error", f"Error loading CSV: {e}")
+                logging.error(f"Error loading CSV: {e}")
         except Exception as e:
             messagebox.showerror("Error", f"An unexpected error occurred: {e}")
             logging.error(f"An unexpected error occurred: {e}")
@@ -552,6 +556,9 @@ class PackingApp:
                 messagebox.showerror("Error", "Please load a CSV file first.")
                 logging.error("Please load a CSV file first.")
                 return
+
+            # จัดเรียงกล่องตาม Priority (จากน้อยไปมาก)
+            self.boxes_to_place.sort(key=lambda box: box.priority)
 
             self.container = Container(
                 container_length,
@@ -581,14 +588,16 @@ class PackingApp:
                     placed_boxes_info.append(
                         [
                             box.sku,
-                            box.length,
                             box.width,
+                            box.length,
                             box.height,
-                            box.priority,
-                            round(box.x / 10, 2),
-                            round(box.y / 10, 2),
-                            round(box.z / 10, 2),
+                            round(box.x, 2),
+                            round(box.y, 2),
+                            round(box.z, 2),
                             rotation,
+                            0,  # Placeholder สำหรับ % Cube
+                            0,  # Placeholder สำหรับ % Wgt
+                            box.priority,
                         ]
                     )
                 else:
@@ -621,18 +630,39 @@ class PackingApp:
                     tk.END, f"  🚫   SKU: {box_info[0]} failed due to: {box_info[-1]}\n"
                 )
 
+            # เพิ่ม "Truck #1" เป็นแถวแรกใน placed_boxes_info
+            placed_boxes_info.insert(
+                0,  # แทรกที่ตำแหน่งแถวแรก
+                [
+                    "Truck #1",  # ค่าในคอลัมน์ SKU
+                    "",          # ค่าว่างสำหรับ Width
+                    "",          # ค่าว่างสำหรับ Length
+                    "",          # ค่าว่างสำหรับ Height
+                    "",          # ค่าว่างสำหรับ X (mm)
+                    "",          # ค่าว่างสำหรับ Y (mm)
+                    "",          # ค่าว่างสำหรับ Z (mm)
+                    "",          # ค่าว่างสำหรับ Rotation
+                    "",          # ค่าว่างสำหรับ % Cube
+                    "",          # ค่าว่างสำหรับ % Wgt
+                    "",          # ค่าว่างสำหรับ Priority
+                ]
+            )
+
+            # สร้าง DataFrame จาก placed_boxes_info
             self.placed_df = pd.DataFrame(
                 placed_boxes_info,
                 columns=[
                     "SKU",
-                    "Length",
                     "Width",
+                    "Length",
                     "Height",
-                    "Priority",
-                    "X (cm)",
-                    "Y (cm)",
-                    "Z (cm)",
+                    "X (mm)",
+                    "Y (mm)",
+                    "Z (mm)",
                     "Rotation",
+                    "% Cube",
+                    "% Wgt",
+                    "Priority",
                 ],
             )
             self.failed_df = pd.DataFrame(
@@ -649,18 +679,66 @@ class PackingApp:
             logging.error(f"An error occurred: {e}")
 
     def export_results(self):
-        if hasattr(self, "placed_df") and hasattr(self, "failed_df"):
-            try:
-                self.placed_df.to_csv("PlacedBox.csv", index=False)
-                self.failed_df.to_csv("Free_Roller_Boxes.csv", index=False)
-                messagebox.showinfo("Success", "Results exported to CSV files.")
-                logging.info("Results exported to CSV files.")
-            except Exception as e:
-                messagebox.showerror("Error", f"Error exporting results: {e}")
-                logging.error(f"Error exporting results: {e}")
+        try:
+            if hasattr(self, "placed_df") and hasattr(self, "failed_df"):
+                # กำหนดโฟลเดอร์สำหรับไฟล์ที่ต้องการบันทึก
+                placed_folder = os.path.join(base_dir, "Placed")
+                failed_folder = os.path.join(base_dir, "Exception_Place") 
+                # ตรวจสอบและสร้างโฟลเดอร์หากยังไม่มี
+                if not os.path.exists(placed_folder):
+                    os.makedirs(placed_folder)
+                    logging.info(f"Created folder: {placed_folder}")
+                if not os.path.exists(failed_folder):
+                    os.makedirs(failed_folder)
+                    logging.info(f"Created folder: {failed_folder}")
+
+                # กำหนดพาธไฟล์
+                placed_file_path = os.path.join(placed_folder, "forexport.csv")
+                failed_file_path = os.path.join(failed_folder, "Free_Roller_Boxes.csv")
+
+                # เลือกเฉพาะคอลัมน์ที่ต้องการ Export
+                export_columns = [
+                    "SKU",
+                    "Width",
+                    "Length",
+                    "Height",
+                    "X (mm)",
+                    "Y (mm)",
+                    "Z (mm)",
+                    "Rotation",
+                    "% Cube",
+                    "% Wgt",
+                    "Priority",
+                ]
+                placed_export_df = self.placed_df[export_columns]
+
+                # บันทึกไฟล์ CSV
+                placed_export_df.to_csv(placed_file_path, index=False)
+                self.failed_df.to_csv(failed_file_path, index=False)
+
+                # แสดงข้อความสำเร็จ
+                messagebox.showinfo(
+                    "Success",
+                    f"Results exported successfully!\nPlacedBox.csv: {placed_file_path}\nFree_Roller_Boxes.csv: {failed_file_path}",
+                )
+                logging.info(
+                    f"Results exported successfully!\nPlacedBox.csv: {placed_file_path}\nFree_Roller_Boxes.csv: {failed_file_path}"
+                )
+            else:
+                messagebox.showwarning("Warning", "No results to export.")
+                logging.warning("No results to export.")
+        except Exception as e:
+            # จัดการข้อผิดพลาดและบันทึกลงใน Log
+            messagebox.showerror("Error", f"Error exporting results: {e}")
+            logging.error(f"Error exporting results: {e}")
+
+    def open_explorer(self):
+        """เปิดโฟลเดอร์ D:/EurekaLoader ใน File Explorer"""
+        folder_path = "D:/EurekaLoader"
+        if os.path.exists(folder_path):
+            os.startfile(folder_path)
         else:
-            messagebox.showwarning("Warning", "No results to export.")
-            logging.warning("No results to export.")
+            messagebox.showerror("Error", f"Folder not found: {folder_path}")
 
 
 def draw_3d_boxes_with_summary(container: Container, utilization: float, ax):
@@ -688,6 +766,6 @@ def main():
     app = PackingApp(root)
     root.mainloop()
 
-
 if __name__ == "__main__":
     main()
+    logging.info("Application started.")
