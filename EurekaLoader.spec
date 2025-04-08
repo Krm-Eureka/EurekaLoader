@@ -5,7 +5,7 @@ a = Analysis(
     ['MainEurekaLoader_Prototype.py'],
     pathex=[],
     binaries=[],
-    datas=[('config.ini', '.'), ('favicon.ico', '.'), ('forimport.csv', '.')],
+    datas=[('config.ini', '.'), ('favicon.ico', '.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
