@@ -33,6 +33,9 @@ class PackingApp:
         self.base_dir = base_dir
         master.title("Eureka Loader Application")
 
+        # เพิ่มการยืนยันก่อนปิดโปรแกรม
+        self.master.protocol("WM_DELETE_WINDOW", self.on_closing)
+
         # Configure grid weights for responsiveness
         master.columnconfigure(0, weight=1)
         master.columnconfigure(1, weight=1)
@@ -111,6 +114,13 @@ class PackingApp:
             container_length = self.container_length.get()
             container_width = self.container_width.get()
             container_height = self.container_height.get()
+
+            if not self.container_width.get().isdigit():
+                messagebox.showerror("Error", "Container width must be a number.")
+            if not self.container_length.get().isdigit():
+                messagebox.showerror("Error", "Container length must be a number.")
+            if not self.container_height.get().isdigit():
+                messagebox.showerror("Error", "Container height must be a number.")
 
             if not all([container_length, container_width, container_height]):
                 messagebox.showerror("Error", "Please enter container dimensions.")
@@ -265,3 +275,8 @@ class PackingApp:
             os.startfile(self.base_dir)
         else:
             messagebox.showerror("Error", f"Folder not found: {self.base_dir}")
+
+    def on_closing(self):
+        """แสดงข้อความยืนยันก่อนปิดโปรแกรม"""
+        if messagebox.askokcancel("Quit", "Do you want to EXIT?"):
+            self.master.destroy()

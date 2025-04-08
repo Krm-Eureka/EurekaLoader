@@ -24,7 +24,7 @@ logging.getLogger().addHandler(console_handler)
 def main():
     root = tk.Tk()
     app = PackingApp(root, base_dir)
-    logging.info("Application started.")  # ย้ายมาหลังจากสร้าง PackingApp
+    logging.info("Application started.")
     root.mainloop()
 
 if __name__ == "__main__":

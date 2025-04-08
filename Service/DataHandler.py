@@ -8,10 +8,28 @@ def load_csv(filepath: str):
     """Load box data from a CSV file."""
     try:
         if not os.path.exists(filepath):
-            messagebox.showerror("Error", f"File not found: {filepath}")
-            logging.error(f"File not found: {filepath}")
+            # สร้างโฟลเดอร์ Input หากไม่มี
+            input_folder = os.path.dirname(filepath)
+            if not os.path.exists(input_folder):
+                os.makedirs(input_folder)
+                logging.info(f"Created folder: {input_folder}")
+
+            # สร้างไฟล์ forimport.csv พร้อมข้อมูลตัวอย่าง
+            sample_data = """Priority,BoxTypes,Width,Length,Height,Conveyor,QTY
+                            1,TEST1,100,200,150,1,1
+                            2,TEST2,120,220,160,1,1
+                            3,TEST3,140,240,170,1,1
+                            """
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write(sample_data)
+                logging.info(f"Created sample file: {filepath}")
+
+            messagebox.showinfo(
+                "Info", f"Sample file created: {filepath}. Please edit it and reload."
+            )
             return None
 
+        # โหลดข้อมูลจากไฟล์ CSV
         df = pd.read_csv(filepath, encoding="utf-8")
         logging.info(f"Loaded CSV file: {filepath}")
 
