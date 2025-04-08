@@ -19,9 +19,12 @@ class TextHandler(logging.Handler):
         self.text_widget = text_widget
 
     def emit(self, record):
-        msg = self.format(record)
-        self.text_widget.insert(tk.END, msg + "\n")
-        self.text_widget.see(tk.END)  # Auto-scroll to the end
+        if self.text_widget.winfo_exists():  # ตรวจสอบว่า widget ยังมีอยู่
+            msg = self.format(record)
+            self.text_widget.config(state="normal")  # เปิดการแก้ไขชั่วคราว
+            self.text_widget.insert(tk.END, msg + "\n")
+            self.text_widget.config(state="disabled")  # ปิดการแก้ไข
+            self.text_widget.see(tk.END)  # เลื่อนข้อความไปที่บรรทัดสุดท้าย
 
 
 class PackingApp:
