@@ -32,9 +32,13 @@ class TextHandler(logging.Handler):
 
 
 class PackingApp:
-    def __init__(self, master, base_dir):
+    def __init__(self, master, start_base_dir):
+        # โหลด base_dir จาก config.ini
+        config, _ = load_config()
+        self.base_dir = config.get("Paths", "base_dir")
+
         self.master = master
-        self.base_dir = base_dir
+        self.start_base_dir = start_base_dir
         self.is_browse_open = False  # ตัวแปรสถานะสำหรับตรวจสอบการเปิด Browse
         master.title("Eureka Loader Application")
 
@@ -49,6 +53,7 @@ class PackingApp:
         settings_menu = tk.Menu(self.menu, tearoff=0)
         self.menu.add_cascade(label="Settings", menu=settings_menu)
         settings_menu.add_command(label="Set Base Directory", command=self.open_settings_window)
+        settings_menu.add_command(label="Set Import CSV Path", command=self.set_import_csv_path)
 
         
 
@@ -71,8 +76,8 @@ class PackingApp:
 
         # แสดง Path ปัจจุบันที่หน้าหลัก
         tk.Label(input_frame, text="Current Base Directory:", anchor="w").grid(row=0, column=0, sticky="w", pady=5)
-        path_label = tk.Label(input_frame, text=self.base_dir, anchor="w", bg="#f0f0f0", relief="sunken")
-        path_label.grid(row=0, column=1, sticky="ew", padx=5, pady=5)
+        self.path_label = tk.Label(input_frame, text=self.base_dir, anchor="w", bg="#f0f0f0", relief="sunken")
+        self.path_label.grid(row=0, column=1, sticky="ew", padx=5, pady=5)
 
         # Container Dimensions
         tk.Label(input_frame, text="Container Length (mm):").grid(row=1, column=0, sticky="w", pady=5)
@@ -120,7 +125,7 @@ class PackingApp:
         log_handler = TextHandler(self.log_text)
         log_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
         logging.getLogger().addHandler(log_handler)
-        logging.getLogger().setLevel(logging.INFO)
+        logging.getLogger().setLevel(logging.INFO)  # บันทึกทุกระดับ
 
     def on_hover(self, event):
         event.widget.config(bg="#d0d0d0")  # Change color on hover
@@ -129,17 +134,26 @@ class PackingApp:
         event.widget.config(bg="#f0f0f0")  # Restore default color
 
     def load_csv(self):
-        filepath = os.path.join(self.base_dir, "Data", "forimport.csv")
-        print(f"Loading CSV from: {filepath}")  # Debugging line
+        """Load CSV file using data_path from config.ini."""
+        config, _ = load_config()
+        data_path = config.get("Paths", "data_path")
+        filepath = os.path.join(data_path, "forimport.csv")
+
         try:
-            self.boxes_to_place = load_csvFile(filepath)
-            print(f"Boxes to place: {self.boxes_to_place}")  # Debugging line
-            if self.boxes_to_place:  # ตรวจสอบว่ามีข้อมูลกล่องที่โหลดสำเร็จ
-                self.run_packing()  # เรียก run_packing ทันทีหลังจากโหลด CSV
+            container_dimensions, self.boxes_to_place = load_csvFile()
+            if container_dimensions is None or self.boxes_to_place is None:
+                return
+
+            container_width, container_length, container_height = container_dimensions
+            self.container_width.set(container_width)
+            self.container_length.set(container_length)
+            self.container_height.set(container_height)
+            self.run_packing()
+            self.export_results_btn()
         except Exception as e:
             logging.error(f"Failed to load CSV: {e}")
             messagebox.showerror("Error", f"Error loading CSV: {e}")
-            
+
     def run_packing(self):
         try:
             # แปลงค่าจาก str เป็น int และตรวจสอบความถูกต้อง
@@ -201,16 +215,13 @@ class PackingApp:
                     placed_boxes_info.append(
                         [
                             box.sku,
-                            box.width,
-                            box.length,
-                            box.height,
-                            round(box.x, 2),
                             round(box.y, 2),
+                            round(box.x, 2),
                             round(box.z, 2),
-                            rotation,
+                            str(rotation),
                             0,  # Placeholder สำหรับ % Cube
                             0,  # Placeholder สำหรับ % Wgt
-                            box.priority,
+                            str(box.priority),
                         ]
                     )
                 else:
@@ -257,13 +268,10 @@ class PackingApp:
                 placed_boxes_info,
                 columns=[
                     "SKU",
-                    "Width",
-                    "Length",
-                    "Height",
-                    "X (mm)",
                     "Y (mm)",
+                    "X (mm)",
                     "Z (mm)",
-                    "Rotation",
+                    "Rotate",
                     "% Cube",
                     "% Wgt",
                     "Priority",
@@ -284,15 +292,14 @@ class PackingApp:
             logging.error(f"An error occurred: {e}")
 
     def export_results_btn(self):
+        """Export results using data_path from config.ini."""
         if hasattr(self, "placed_df") and hasattr(self, "failed_df"):
-            print(f"Exporting results to: {self.base_dir}")  # Debugging line
-            export_results(self.placed_df, self.failed_df, self.base_dir)
+            export_results(self.placed_df, self.failed_df)
         else:
             messagebox.showwarning("Warning", "No results to export.")
-            logging.warning("No results to export.")
 
     def open_explorer(self):
-        """Open the base directory in File Explorer."""
+        """เปิด base_dir ใน File Explorer"""
         if os.path.exists(self.base_dir):
             os.startfile(self.base_dir)
         else:
@@ -300,83 +307,61 @@ class PackingApp:
 
     def update_path_label(self):
         """อัปเดต Path ปัจจุบันในหน้าหลัก"""
+        config, _ = load_config()
+        self.base_dir = config.get("Paths", "base_dir")
         self.path_label.config(text=self.base_dir)
 
     def open_settings_window(self):
-        """เปิดหน้าต่าง Settings เพื่อแสดง Path และเลือก Path ใหม่"""
-        if hasattr(self, "settings_window") and self.settings_window is not None and self.settings_window.winfo_exists():
-            # หากหน้าต่าง Settings เปิดอยู่แล้ว ให้โฟกัสไปที่หน้าต่างเดิม
-            self.settings_window.lift()
-            return
 
-        # สร้างหน้าต่าง Settings ใหม่
-        self.settings_window = tk.Toplevel(self.master)
-        self.settings_window.title("Settings")
-        self.settings_window.geometry("400x100")
-
-        # แสดง Path ปัจจุบัน
-        tk.Label(self.settings_window, text="Current Base Directory:", anchor="w").pack(fill=tk.X, padx=10, pady=5)
-        path_label = tk.Label(self.settings_window, text=self.base_dir, anchor="w", bg="#f0f0f0", relief="sunken")
-        path_label.pack(fill=tk.X, padx=10, pady=5)
-
-        # ปุ่ม Browse เพื่อเลือก Path ใหม่
-        def browse_path():
-            if self.is_browse_open:
-                return
-
-            self.is_browse_open = True
-            try:
-                new_path = filedialog.askdirectory(initialdir=self.base_dir, title="Select Base Directory")
-                if new_path:
-                    self.base_dir = new_path
-                    path_label.config(text=self.base_dir)
-                    self.update_path_label()
-                # บันทึก path ใหม่ลงใน config.ini
-                    config_path = os.path.join(os.path.dirname(__file__), "../config.ini")
-                    config = configparser.ConfigParser()
-                    config.read(config_path, encoding="utf-8")
-                    if not config.has_section("Paths"):
-                        config.add_section("Paths")
-                    config.set("Paths", "base_dir", self.base_dir)
-                    with open(config_path, "w", encoding="utf-8") as config_file:
-                        config.write(config_file)
-                    logging.info(f"Base directory updated in config.ini: {self.base_dir}")   
-                    on_close()      
-            finally:
-                self.is_browse_open = False
-
-        browse_button = tk.Button(self.settings_window, text="Browse", command=browse_path)
-        browse_button.pack(pady=10)
-
-        # ปิดหน้าต่าง Settings และล้างตัวแปร
-        def on_close():
-            self.settings_window.destroy()
-            self.settings_window = None
-
-        self.settings_window.protocol("WM_DELETE_WINDOW", on_close)
+            new_path = filedialog.askdirectory(initialdir=self.base_dir, title="Select Base Directory")
+            if new_path:
+                config, _ = load_config()
+                config.set("Paths", "base_dir", new_path)
+                config_path = os.path.join(os.path.dirname(__file__), "../config.ini")
+                with open(config_path, "w", encoding="utf-8") as config_file:
+                    config.write(config_file)
+                self.update_path_label()
+                messagebox.showinfo("Success", f"Base directory updated to: {new_path}")
 
     def set_base_dir(self):
-        """ตั้งค่า Base Directory"""
-        new_base_dir = simpledialog.askstring("Set Base Directory", "Enter new base directory:")
+        """ตั้งค่า Base Directory และอัปเดตใน config.ini"""
+        new_base_dir = filedialog.askdirectory(
+            initialdir=self.base_dir,
+            title="Select Base Directory"
+        )
         if new_base_dir:
-            if os.path.exists(new_base_dir):
-                self.base_dir = new_base_dir
-                messagebox.showinfo("Success", f"Base directory updated to: {new_base_dir}")
-                logging.info(f"Base directory updated to: {new_base_dir}")
-            else:
-                messagebox.showerror("Error", f"Directory does not exist: {new_base_dir}")
+            config, _ = load_config()
+            config.set("Paths", "base_dir", new_base_dir)
+            config_path = os.path.join(os.path.dirname(__file__), "../config.ini")
+            with open(config_path, "w", encoding="utf-8") as config_file:
+                config.write(config_file)
+            self.refresh_ui()  # รีเฟรช UI
 
     def set_import_csv_path(self):
-        """ตั้งค่า Default CSV Path"""
-        new_csv_path = simpledialog.askstring("Set Default CSV Path", "Enter new default CSV path:")
-        if new_csv_path:
-            full_path = os.path.join(self.base_dir, new_csv_path)
-            if os.path.exists(full_path):
-                self.import_csv_path = new_csv_path
-                messagebox.showinfo("Success", f"Default CSV path updated to: {new_csv_path}")
-                logging.info(f"Default CSV path updated to: {new_csv_path}")
+        """ตั้งค่า Default CSV Path โดยเลือกโฟลเดอร์ก่อน แล้วค้นหาไฟล์ forimport.csv ภายในโฟลเดอร์นั้น"""
+        new_folder_path = filedialog.askdirectory(
+            initialdir=self.base_dir,
+            title="Select Folder Containing forimport.csv"
+        )
+        if new_folder_path:
+            # ตรวจสอบว่าไฟล์ forimport.csv มีอยู่ในโฟลเดอร์ที่เลือกหรือไม่
+            csv_file_path = os.path.join(new_folder_path, "forimport.csv")
+            if os.path.exists(csv_file_path):
+                config, _ = load_config()
+                config.set("Paths", "data_path", new_folder_path)
+                config_path = os.path.join(os.path.dirname(__file__), "../config.ini")
+                with open(config_path, "w", encoding="utf-8") as config_file:
+                    config.write(config_file)
+                self.update_path_label()  # อัปเดต UI
+                messagebox.showinfo("Success", f"CSV path updated to: {csv_file_path}")
             else:
-                messagebox.showerror("Error", f"File does not exist: {full_path}")
+                messagebox.showerror("Error", f"forimport.csv not found in the selected folder: {new_folder_path}")
+
+    def refresh_ui(self):
+        """รีเฟรชค่าใน UI จาก config.ini"""
+        config, _ = load_config()
+        self.base_dir = config.get("Paths", "base_dir")
+        self.update_path_label()
 
     def on_closing(self):
         """แสดงข้อความยืนยันก่อนปิดโปรแกรม"""

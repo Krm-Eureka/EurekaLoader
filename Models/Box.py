@@ -27,14 +27,21 @@ class Box:
 
     def is_supported(self, placed_boxes: List["Box"], pallet_height: int) -> bool:
         if self.z <= pallet_height:
-            return True
-        center_x = self.x + self.length / 2
-        center_y = self.y + self.width / 2
+            return True  # กล่องอยู่บนพาเลท
+
+        # คำนวณพื้นที่ที่ต้องการการรองรับ
+        support_area = 0
+        required_support_area = (self.length * self.width) * 0.6  # ต้องการการรองรับอย่างน้อย 60%
+
         for b in placed_boxes:
-            if abs(b.z + b.height - self.z) < 1e-6:
-                if (
-                    b.x <= center_x <= b.x + b.length
-                    and b.y <= center_y <= b.y + b.width
-                ):
+            if abs(b.z + b.height - self.z) < 1e-6:  # ตรวจสอบว่ากล่องอยู่ด้านล่าง
+                # คำนวณพื้นที่ที่กล่องด้านล่างรองรับ
+                overlap_x = max(0, min(self.x + self.length, b.x + b.length) - max(self.x, b.x))
+                overlap_y = max(0, min(self.y + self.width, b.y + b.width) - max(self.y, b.y))
+                support_area += overlap_x * overlap_y
+
+                # หากพื้นที่รองรับเพียงพอแล้ว ให้คืนค่า True
+                if support_area >= required_support_area:
                     return True
-        return False
+
+        return False  # กล่องไม่ได้รับการรองรับเพียงพอ
