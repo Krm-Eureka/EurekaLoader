@@ -1,12 +1,16 @@
 import os
+import sys
 import logging
 import tkinter as tk
 from Service.UI import PackingApp
-from Service.config_manager import load_config, get_base_dir
+from Service.config_manager import load_config
 
 # --- Load Configuration ---
-config = load_config()
-base_dir = config.get("Paths", "base_dir", fallback=get_base_dir())
+try:
+    config, base_dir = load_config()
+except RuntimeError as e:
+    print(f"Configuration Error: {e}")
+    sys.exit(1) 
 
 # --- Logging ---
 logging.basicConfig(

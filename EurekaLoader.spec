@@ -2,7 +2,7 @@
 
 
 a = Analysis(
-    ['MainEurekaLoader_Prototype.py'],
+    ['MainEurekaLoader.py'],
     pathex=[],
     binaries=[],
     datas=[('config.ini', '.'), ('favicon.ico', '.')],

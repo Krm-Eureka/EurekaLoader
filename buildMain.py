@@ -39,8 +39,8 @@ def build_app():
             "--icon=favicon.ico",  # Add your icon file here
             "--add-data=config.ini;.",  # Include config.ini
             "--add-data=favicon.ico;.",  # Include favicon.ico
-            "--name=EurekaLoader",  # Set the output executable name
-            "MainEurekaLoader_Prototype.py"
+            "--name=EurekaLoader_P1_3",  # Set the output executable name
+            "MainEurekaLoader.py"
         ])
 
         print("Application built successfully!")

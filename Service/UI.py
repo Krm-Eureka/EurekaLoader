@@ -1,16 +1,20 @@
 import tkinter as tk
-from tkinter import messagebox
+import configparser
+from tkinter import messagebox, filedialog
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from Models.Pallet import Pallet
+from Models.Box import Box
 from Models.Container import Container
 import matplotlib.pyplot as plt
 import pandas as pd 
-from Service.DataHandler import load_csv, export_results
+from Service.DataHandler import load_csvFile, export_results
+from Service.config_manager import load_config
 from Service.Visualization import draw_3d_boxes_with_summary
 from Service.Visualization import draw_3d_boxes_with_summary, place_box_in_container
 import os
 import logging
 import time
+import tkinter.simpledialog as simpledialog
 
 class TextHandler(logging.Handler):
     """Custom logging handler to redirect logs to a Tkinter Text widget."""
@@ -31,16 +35,28 @@ class PackingApp:
     def __init__(self, master, base_dir):
         self.master = master
         self.base_dir = base_dir
+        self.is_browse_open = False  # ตัวแปรสถานะสำหรับตรวจสอบการเปิด Browse
         master.title("Eureka Loader Application")
 
         # เพิ่มการยืนยันก่อนปิดโปรแกรม
         self.master.protocol("WM_DELETE_WINDOW", self.on_closing)
 
+        # สร้างเมนู Toolbar
+        self.menu = tk.Menu(master)
+        master.config(menu=self.menu)
+
+        # เพิ่มเมนู Settings
+        settings_menu = tk.Menu(self.menu, tearoff=0)
+        self.menu.add_cascade(label="Settings", menu=settings_menu)
+        settings_menu.add_command(label="Set Base Directory", command=self.open_settings_window)
+
+        
+
         # Configure grid weights for responsiveness
-        master.columnconfigure(0, weight=1)
-        master.columnconfigure(1, weight=1)
-        master.rowconfigure(0, weight=1)
-        master.rowconfigure(1, weight=0)
+        master.columnconfigure(0, weight=1)  # คอลัมน์ซ้าย (ปุ่ม)
+        master.columnconfigure(1, weight=2)  # คอลัมน์ขวา (3D Visualization)
+        master.rowconfigure(0, weight=0)
+        master.rowconfigure(1, weight=1)
 
         self.container_length = tk.IntVar()
         self.container_width = tk.IntVar()
@@ -48,46 +64,55 @@ class PackingApp:
         self.boxes_to_place = []
         self.container = None
         self.pallet = Pallet(width=1100, length=1100, height=140)
-
+        
         # Input Frame
-        input_frame = tk.Frame(master)
-        input_frame.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
+        input_frame = tk.LabelFrame(master, text="Input Settings", padx=10, pady=10)  # ใช้ LabelFrame เพื่อเพิ่มหัวข้อ
+        input_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=10)
+
+        # แสดง Path ปัจจุบันที่หน้าหลัก
+        tk.Label(input_frame, text="Current Base Directory:", anchor="w").grid(row=0, column=0, sticky="w", pady=5)
+        path_label = tk.Label(input_frame, text=self.base_dir, anchor="w", bg="#f0f0f0", relief="sunken")
+        path_label.grid(row=0, column=1, sticky="ew", padx=5, pady=5)
 
         # Container Dimensions
-        tk.Label(input_frame, text="Container Length (mm):").grid(row=0, column=0, sticky="w", pady=5)
-        tk.Entry(input_frame, textvariable=self.container_length).grid(row=0, column=1, sticky="ew", pady=5)
-        tk.Label(input_frame, text="Container Width (mm):").grid(row=1, column=0, sticky="w", pady=5)
-        tk.Entry(input_frame, textvariable=self.container_width).grid(row=1, column=1, sticky="ew", pady=5)
-        tk.Label(input_frame, text="Container Height (mm):").grid(row=2, column=0, sticky="w", pady=5)
-        tk.Entry(input_frame, textvariable=self.container_height).grid(row=2, column=1, sticky="ew", pady=5)
+        tk.Label(input_frame, text="Container Length (mm):").grid(row=1, column=0, sticky="w", pady=5)
+        tk.Entry(input_frame, textvariable=self.container_length).grid(row=1, column=1, sticky="ew", padx=5, pady=5)
+        tk.Label(input_frame, text="Container Width (mm):").grid(row=2, column=0, sticky="w", pady=5)
+        tk.Entry(input_frame, textvariable=self.container_width).grid(row=2, column=1, sticky="ew", padx=5, pady=5)
+        tk.Label(input_frame, text="Container Height (mm):").grid(row=3, column=0, sticky="w", pady=5)
+        tk.Entry(input_frame, textvariable=self.container_height).grid(row=3, column=1, sticky="ew", padx=5, pady=5)
 
         # Buttons
-        self.load_button = tk.Button(input_frame, text="Load CSV", command=self.load_csv, bg="#f0f0f0")
-        self.load_button.grid(row=3, column=0, columnspan=2, pady=10, sticky="ew")
-        self.run_button = tk.Button(input_frame, text="Run Packing", command=self.run_packing)
-        self.run_button.grid(row=4, column=0, columnspan=2, pady=10, sticky="ew")
-        self.export_button = tk.Button(input_frame, text="Export Results", command=self.export_results)
-        self.export_button.grid(row=5, column=0, columnspan=2, pady=10, sticky="ew")
-        self.explore_button = tk.Button(input_frame, text="Explore", command=self.open_explorer)
-        self.explore_button.grid(row=6, column=0, columnspan=2, pady=10, sticky="ew")
+        button_frame = tk.Frame(input_frame)  # เพิ่ม Frame สำหรับปุ่ม
+        button_frame.grid(row=4, column=0, columnspan=2, pady=10, sticky="ew")
+        self.load_button = tk.Button(button_frame, text="Load CSV", command=self.load_csv, bg="#f0f0f0")
+        self.load_button.pack(side="left", fill="x", expand=True, padx=5)
+        self.run_button = tk.Button(button_frame, text="Run Packing", command=self.run_packing)
+        self.run_button.pack(side="left", fill="x", expand=True, padx=5)
+        self.export_button = tk.Button(button_frame, text="Export Results", command=self.export_results_btn)
+        self.export_button.pack(side="left", fill="x", expand=True, padx=5)
+        self.explore_button = tk.Button(button_frame, text="Explore", command=self.open_explorer)
+        self.explore_button.pack(side="left", fill="x", expand=True, padx=5)
 
         # Visualization Frame
-        self.visualization_frame = tk.Frame(master)
-        self.visualization_frame.grid(row=0, column=1, sticky="nsew", padx=10, pady=10)
-        self.fig = plt.Figure(figsize=(5, 5))
+        self.visualization_frame = tk.LabelFrame(master, text="3D Visualization", padx=10, pady=10)
+        self.visualization_frame.grid(row=1, column=1, sticky="nsew", padx=10, pady=10)
+
+        # ปรับขนาด Figure ให้สัมพันธ์กับ Layout
+        self.fig = plt.Figure(figsize=(10, 5))  # ขนาด 1 ต่อ 2 (กว้าง 10 นิ้ว สูง 5 นิ้ว)
         self.ax = self.fig.add_subplot(111, projection="3d")
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.visualization_frame)
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
         # Summary Frame
-        self.summary_frame = tk.Frame(master)
-        self.summary_frame.grid(row=1, column=0, columnspan=1, sticky="nsew", padx=10, pady=10)
+        self.summary_frame = tk.LabelFrame(master, text="Summary", padx=10, pady=10)
+        self.summary_frame.grid(row=2, column=0, columnspan=1, sticky="nsew", padx=10, pady=10)
         self.summary_text = tk.Text(self.summary_frame, height=10, width=80)
         self.summary_text.pack(fill=tk.BOTH, expand=True)
 
         # Log Viewer Frame
-        self.log_frame = tk.Frame(master)
-        self.log_frame.grid(row=1, column=1, sticky="nsew", padx=10, pady=10)
+        self.log_frame = tk.LabelFrame(master, text="Log Viewer", padx=10, pady=10)
+        self.log_frame.grid(row=2, column=1, sticky="nsew", padx=10, pady=10)
         self.log_text = tk.Text(self.log_frame, height=10, width=50, bg="#f9f9f9", state="normal")
         self.log_text.pack(fill=tk.BOTH, expand=True)
 
@@ -104,27 +129,31 @@ class PackingApp:
         event.widget.config(bg="#f0f0f0")  # Restore default color
 
     def load_csv(self):
-        filepath = os.path.join(self.base_dir, "Input", "forimport.csv")
-        self.boxes_to_place = load_csv(filepath)
-        if self.boxes_to_place:  # ตรวจสอบว่ามีข้อมูลกล่องที่โหลดสำเร็จ
-            self.run_packing()  # เรียก run_packing ทันทีหลังจากโหลด CSV
-
+        filepath = os.path.join(self.base_dir, "Data", "forimport.csv")
+        print(f"Loading CSV from: {filepath}")  # Debugging line
+        try:
+            self.boxes_to_place = load_csvFile(filepath)
+            print(f"Boxes to place: {self.boxes_to_place}")  # Debugging line
+            if self.boxes_to_place:  # ตรวจสอบว่ามีข้อมูลกล่องที่โหลดสำเร็จ
+                self.run_packing()  # เรียก run_packing ทันทีหลังจากโหลด CSV
+        except Exception as e:
+            logging.error(f"Failed to load CSV: {e}")
+            messagebox.showerror("Error", f"Error loading CSV: {e}")
+            
     def run_packing(self):
         try:
-            container_length = self.container_length.get()
-            container_width = self.container_width.get()
-            container_height = self.container_height.get()
+            # แปลงค่าจาก str เป็น int และตรวจสอบความถูกต้อง
+            try:
+                container_length = int(self.container_length.get())
+                container_width = int(self.container_width.get())
+                container_height = int(self.container_height.get())
+            except ValueError:
+                messagebox.showerror("Error", "Container dimensions must be valid numbers.")
+                return
 
-            if not self.container_width.get().isdigit():
-                messagebox.showerror("Error", "Container width must be a number.")
-            if not self.container_length.get().isdigit():
-                messagebox.showerror("Error", "Container length must be a number.")
-            if not self.container_height.get().isdigit():
-                messagebox.showerror("Error", "Container height must be a number.")
-
-            if not all([container_length, container_width, container_height]):
-                messagebox.showerror("Error", "Please enter container dimensions.")
-                logging.error("Please enter container dimensions.")
+            # ตรวจสอบว่าค่าที่ป้อนเป็นตัวเลขบวกและไม่เป็น 0
+            if container_length <= 0 or container_width <= 0 or container_height <= 0:
+                messagebox.showerror("Error", "Container dimensions must be positive numbers and greater than 0.")
                 return
 
             if not self.boxes_to_place:
@@ -218,17 +247,8 @@ class PackingApp:
             placed_boxes_info.insert(
                 0,  # แทรกที่ตำแหน่งแถวแรก
                 [
-                    "Truck #1",  
-                    "",          
-                    "",          
-                    "",          
-                    "",          
-                    "",          
-                    "",          
-                    "",          
-                    "",          
-                    "",          
-                    "",          
+                    "Truck #1"
+                       
                 ]
             )
 
@@ -257,13 +277,15 @@ class PackingApp:
             draw_3d_boxes_with_summary(self.container, utilization, self.ax)
             self.canvas.draw()
             logging.info("Packing process completed successfully.")
-
+            # Export results automatically
+            
         except Exception as e:
             messagebox.showerror("Error", f"An error occurred: {e}")
             logging.error(f"An error occurred: {e}")
 
-    def export_results(self):
+    def export_results_btn(self):
         if hasattr(self, "placed_df") and hasattr(self, "failed_df"):
+            print(f"Exporting results to: {self.base_dir}")  # Debugging line
             export_results(self.placed_df, self.failed_df, self.base_dir)
         else:
             messagebox.showwarning("Warning", "No results to export.")
@@ -275,6 +297,86 @@ class PackingApp:
             os.startfile(self.base_dir)
         else:
             messagebox.showerror("Error", f"Folder not found: {self.base_dir}")
+
+    def update_path_label(self):
+        """อัปเดต Path ปัจจุบันในหน้าหลัก"""
+        self.path_label.config(text=self.base_dir)
+
+    def open_settings_window(self):
+        """เปิดหน้าต่าง Settings เพื่อแสดง Path และเลือก Path ใหม่"""
+        if hasattr(self, "settings_window") and self.settings_window is not None and self.settings_window.winfo_exists():
+            # หากหน้าต่าง Settings เปิดอยู่แล้ว ให้โฟกัสไปที่หน้าต่างเดิม
+            self.settings_window.lift()
+            return
+
+        # สร้างหน้าต่าง Settings ใหม่
+        self.settings_window = tk.Toplevel(self.master)
+        self.settings_window.title("Settings")
+        self.settings_window.geometry("400x100")
+
+        # แสดง Path ปัจจุบัน
+        tk.Label(self.settings_window, text="Current Base Directory:", anchor="w").pack(fill=tk.X, padx=10, pady=5)
+        path_label = tk.Label(self.settings_window, text=self.base_dir, anchor="w", bg="#f0f0f0", relief="sunken")
+        path_label.pack(fill=tk.X, padx=10, pady=5)
+
+        # ปุ่ม Browse เพื่อเลือก Path ใหม่
+        def browse_path():
+            if self.is_browse_open:
+                return
+
+            self.is_browse_open = True
+            try:
+                new_path = filedialog.askdirectory(initialdir=self.base_dir, title="Select Base Directory")
+                if new_path:
+                    self.base_dir = new_path
+                    path_label.config(text=self.base_dir)
+                    self.update_path_label()
+                # บันทึก path ใหม่ลงใน config.ini
+                    config_path = os.path.join(os.path.dirname(__file__), "../config.ini")
+                    config = configparser.ConfigParser()
+                    config.read(config_path, encoding="utf-8")
+                    if not config.has_section("Paths"):
+                        config.add_section("Paths")
+                    config.set("Paths", "base_dir", self.base_dir)
+                    with open(config_path, "w", encoding="utf-8") as config_file:
+                        config.write(config_file)
+                    logging.info(f"Base directory updated in config.ini: {self.base_dir}")   
+                    on_close()      
+            finally:
+                self.is_browse_open = False
+
+        browse_button = tk.Button(self.settings_window, text="Browse", command=browse_path)
+        browse_button.pack(pady=10)
+
+        # ปิดหน้าต่าง Settings และล้างตัวแปร
+        def on_close():
+            self.settings_window.destroy()
+            self.settings_window = None
+
+        self.settings_window.protocol("WM_DELETE_WINDOW", on_close)
+
+    def set_base_dir(self):
+        """ตั้งค่า Base Directory"""
+        new_base_dir = simpledialog.askstring("Set Base Directory", "Enter new base directory:")
+        if new_base_dir:
+            if os.path.exists(new_base_dir):
+                self.base_dir = new_base_dir
+                messagebox.showinfo("Success", f"Base directory updated to: {new_base_dir}")
+                logging.info(f"Base directory updated to: {new_base_dir}")
+            else:
+                messagebox.showerror("Error", f"Directory does not exist: {new_base_dir}")
+
+    def set_import_csv_path(self):
+        """ตั้งค่า Default CSV Path"""
+        new_csv_path = simpledialog.askstring("Set Default CSV Path", "Enter new default CSV path:")
+        if new_csv_path:
+            full_path = os.path.join(self.base_dir, new_csv_path)
+            if os.path.exists(full_path):
+                self.import_csv_path = new_csv_path
+                messagebox.showinfo("Success", f"Default CSV path updated to: {new_csv_path}")
+                logging.info(f"Default CSV path updated to: {new_csv_path}")
+            else:
+                messagebox.showerror("Error", f"File does not exist: {full_path}")
 
     def on_closing(self):
         """แสดงข้อความยืนยันก่อนปิดโปรแกรม"""
