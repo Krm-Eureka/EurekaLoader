@@ -1,0 +1,20 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Build directories
+build/
+dist/
+*.egg-info/
+
+# Log files
+*.log
+
+# Virtual environments (optional)
+env/
+venv/
+
+# OS-specific files
+.DS_Store
+Thumbs.db
