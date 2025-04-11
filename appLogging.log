@@ -1,0 +1,31 @@
+2025-04-11 17:36:17,674 - INFO - Application started.
+2025-04-11 17:37:12,101 - INFO - Application started.
+2025-04-11 17:38:18,817 - INFO - Application started.
+2025-04-11 17:38:21,520 - INFO - Attempting to load CSV file from: D:/EurekaLoader/Data\forimport.csv
+2025-04-11 17:38:21,521 - INFO - Container dimensions loaded: Width=1060, Length=1060, Height=920
+2025-04-11 17:38:21,531 - INFO - DataFrame loaded: 
+    Priority BoxTypes  Width  Length  Height
+0          1       C1    290     640     315
+1          2       C2    260     630     290
+2          3       C3    410     665     385
+3          4       C4    410     665     385
+4          5       C5    410     665     385
+5          6       C6    220     320     150
+6          7       C1    290     640     315
+7          8       C2    260     630     290
+8          9       C3    410     665     385
+9         10       C4    410     665     385
+10        11       C5    410     665     385
+11        12       C6    220     320     150
+12        13       C1    290     640     315
+13        14       C2    260     630     290
+14        15       C3    410     665     385
+15        16       C4    410     665     385
+16        17       C5    410     665     385
+17        18       C6    220     320     150
+18        19       C1    290     640     315
+19        20       C1    290     640     315
+20        21       C1    290     640     315
+21        22       C1    290     640     315
+2025-04-11 17:38:21,534 - INFO - Loaded 22 boxes from CSV.
+2025-04-11 17:38:21,607 - INFO - Packing process completed successfully.

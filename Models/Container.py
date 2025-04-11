@@ -1,9 +1,15 @@
 from typing import List, Tuple
+import os
+import configparser
 from Models.Box import Box
 from Models.Pallet import Pallet
 import numpy as np
 
-GAP = 2.5  # mm
+# โหลดค่า GAP จาก config.ini
+config = configparser.ConfigParser()
+config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config.ini")
+config.read(config_path)
+GAP = float(config.get("Container", "gap", fallback=15))  # ใช้ค่า fallback เป็น 2.5 หากไม่มีใน config.ini
 
 class Container:
     def __init__(self, length: int, width: int, height: int, color: str, pallet: Pallet):
@@ -22,6 +28,7 @@ class Container:
         self.end_z = self.total_height
 
     def can_place(self, box: Box, x: int, y: int, z: int) -> Tuple[bool, str]:
+        """Check if a box can be placed at the given position."""
         box_end_x = x + box.length
         box_end_y = y + box.width
         box_end_z = z + box.height
@@ -37,10 +44,13 @@ class Container:
             return False, "Out of container bounds"
 
         box.set_position(x, y, z)
+
+        # ตรวจสอบการชนกัน
         for placed in self.boxes:
             if box.collides_with(placed):
                 return False, "Collision with another box"
 
+        # ตรวจสอบการรองรับ
         if not box.is_supported(self.boxes, self.pallet_height):
             return False, "Box not supported from below"
 
@@ -50,6 +60,7 @@ class Container:
         self.boxes.append(box)
 
     def generate_candidate_positions(self) -> List[Tuple[int, int, int]]:
+        """Generate candidate positions for placing boxes."""
         if not self.boxes:
             return [
                 (
@@ -59,7 +70,7 @@ class Container:
                 )
             ]
 
-        positions = []
+        positions = set()
         for b in self.boxes:
             for dx in [0, b.length]:
                 for dy in [0, b.width]:
@@ -70,5 +81,5 @@ class Container:
                             and self.start_y <= y < self.end_y
                             and 0 <= z < self.end_z
                         ):
-                            positions.append((int(x), int(y), int(z)))
-        return sorted(set(positions), key=lambda pos: (pos[2], pos[1], pos[0]))
+                            positions.add((int(x), int(y), int(z)))
+        return sorted(positions, key=lambda pos: (pos[2], pos[1], pos[0]))

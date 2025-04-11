@@ -34,12 +34,13 @@ def build_app():
             sys.executable,
             "-m",
             "PyInstaller",
-            "--onefile",
+            "--onedir",
             "--windowed",
             "--icon=favicon.ico",  # Add your icon file here
-            "--add-data=config.ini;.",  # Include config.ini
-            "--add-data=favicon.ico;.",  # Include favicon.ico
-            "--name=EurekaLoader_P1_3",  # Set the output executable name
+            "--add-data=config.ini:.",  # Include config.ini
+            "--add-data=favicon.ico:.",  # Include favicon.ico
+            "--add-data=EA_Logo.png:.",
+            "--name=EurekaLoader",  # Set the output executable name
             "MainEurekaLoader.py"
         ])
 

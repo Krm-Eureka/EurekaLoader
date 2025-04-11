@@ -77,7 +77,7 @@ def load_csvFile():
 
         # เพิ่มการตรวจสอบข้อมูลในไฟล์ CSV
         df = pd.read_csv(temp_path, delimiter=",")  # ระบุ delimiter
-        logging.info(f"DataFrame loaded: \n{df.head()}")  # แสดงข้อมูลใน DataFrame
+        logging.info(f"DataFrame loaded: \n{df.to_string()}")
 
         required_columns = ["Priority", "BoxTypes", "Width", "Length", "Height"]
         if not all(col in df.columns for col in required_columns):
