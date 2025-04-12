@@ -44,6 +44,6 @@ class Pallet:
         ]
         ax.add_collection3d(
             Line3DCollection(
-                vertices[edges], color="black", linestyle="dashed", linewidth=2
+                vertices[edges], color="black", linestyle="dashed", linewidth=1
             )
         )

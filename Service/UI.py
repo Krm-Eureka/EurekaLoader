@@ -15,6 +15,7 @@ import os
 import logging
 import time
 import tkinter.simpledialog as simpledialog
+from Service.Visualization import enable_zoom
 
 class TextHandler(logging.Handler):
     """Custom logging handler to redirect logs to a Tkinter Text widget."""
@@ -58,10 +59,10 @@ class PackingApp:
         
 
         # Configure grid weights for responsiveness
-        master.columnconfigure(0, weight=1)  # คอลัมน์ซ้าย (ปุ่ม)
-        master.columnconfigure(1, weight=2)  # คอลัมน์ขวา (3D Visualization)
+        master.columnconfigure(0, weight=1)  # คอลัมน์ซ้าย (Input Frame)
+        master.columnconfigure(1, weight=3)  # คอลัมน์ขวา (3D Visualization)
         master.rowconfigure(0, weight=0)
-        master.rowconfigure(1, weight=1)
+        master.rowconfigure(1, weight=1)  # แถวที่ 1 (3D Visualization)
 
         self.container_length = tk.IntVar()
         self.container_width = tk.IntVar()
@@ -103,11 +104,14 @@ class PackingApp:
         self.visualization_frame = tk.LabelFrame(master, text="3D Visualization", padx=10, pady=10)
         self.visualization_frame.grid(row=1, column=1, sticky="nsew", padx=10, pady=10)
 
-        # ปรับขนาด Figure ให้สัมพันธ์กับ Layout
-        self.fig = plt.Figure(figsize=(10, 5))  # ขนาด 1 ต่อ 2 (กว้าง 10 นิ้ว สูง 5 นิ้ว)
+        # ปรับขนาด Figure ให้สูงเต็มจอ
+        self.fig = plt.Figure(figsize=(14, 20))  # ขนาดกว้าง 14 นิ้ว สูง 20 นิ้ว
         self.ax = self.fig.add_subplot(111, projection="3d")
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.visualization_frame)
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+        # เปิดใช้งานฟีเจอร์ซูม
+        enable_zoom(self.ax, self.canvas)
 
         # Summary Frame
         self.summary_frame = tk.LabelFrame(master, text="Summary", padx=10, pady=10)

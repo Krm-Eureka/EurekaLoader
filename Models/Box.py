@@ -10,9 +10,9 @@ REQUIRED_SUPPORT_RATIO = float(config.get("Container", "required_support_ratio",
 
 class Box:
     def __init__(self, length: int, width: int, height: int, sku: str, priority: int):
-        self.length = length
-        self.width = width
-        self.height = height
+        self.length = length + int(5)
+        self.width = width + int(5)
+        self.height = height + int(5)
         self.sku = sku
         self.priority = priority
         self.x = self.y = self.z = 0

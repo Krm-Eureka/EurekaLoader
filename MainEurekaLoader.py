@@ -84,9 +84,13 @@ class LoaderApp:
         """Start the main application."""
         self.root.destroy()
         root = tk.Tk()
+        root.state('zoomed') 
+        root.lift() # ยกหน้าต่างขึ้นมา root.attributes('-topmost', True)
+
         app = PackingApp(root, base_dir)
         logging.info("Application started.")
         root.mainloop()
+        
 
 # --- Main Application ---
 def main():
