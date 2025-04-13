@@ -106,7 +106,6 @@ def load_csvFile():
         messagebox.showerror("Error", f"Error loading CSV: {e}")
         return None, None
 
-
 def export_results(placed_df, failed_df):
     """Export results to CSV files."""
     config, _ = load_config()

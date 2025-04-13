@@ -157,7 +157,13 @@ class PackingApp:
         except Exception as e:
             logging.error(f"Failed to load CSV: {e}")
             messagebox.showerror("Error", f"Error loading CSV: {e}")
-
+            
+    def calculate_utilization(self, box: Box, container: Container) -> float:
+        """คำนวณเปอร์เซ็นต์การใช้พื้นที่ของกล่องในคอนเทนเนอร์."""
+        box_volume = box.length * box.width * box.height
+        container_volume = container.length * container.width * container.height
+        return (box_volume / container_volume) * 100 if container_volume > 0 else 0.0
+    
     def run_packing(self):
         try:
             # แปลงค่าจาก str เป็น int และตรวจสอบความถูกต้อง
@@ -212,6 +218,7 @@ class PackingApp:
                 if result == "Placed":
                     placed_count += 1
                     placed_volume += box.get_volume()
+                    cube_utilization = self.calculate_utilization(box, self.container)  # คำนวณ % Cube
                     self.summary_text.insert(
                         tk.END,
                         f"Box {i+1} (SKU: {box.sku}) placed at x={box.x}, y={box.y}, z={box.z} with Rotation={rotation}\n",
@@ -223,7 +230,7 @@ class PackingApp:
                             round(box.x, 2),
                             round(box.z, 2),
                             str(rotation),
-                            0,  # Placeholder สำหรับ % Cube
+                            round(cube_utilization, 2),  # Placeholder สำหรับ % Cube
                             0,  # Placeholder สำหรับ % Wgt
                             str(box.priority),
                         ]

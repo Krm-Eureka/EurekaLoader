@@ -9,7 +9,7 @@ import numpy as np
 config = configparser.ConfigParser()
 config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config.ini")
 config.read(config_path)
-GAP = float(config.get("Container", "gap", fallback=15))  # ใช้ค่า fallback เป็น 2.5 หากไม่มีใน config.ini
+GAP = float(config.get("Container", "gap", fallback=5))  # ใช้ค่า fallback เป็น 2.5 หากไม่มีใน config.ini
 
 class Container:
     def __init__(self, length: int, width: int, height: int, color: str, pallet: Pallet):

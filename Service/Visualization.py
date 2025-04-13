@@ -6,11 +6,27 @@ from Models.Box import Box
 from Models.Container import Container
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
+from typing import List
 
 # โหลดค่า BoxColors จาก config.ini
 config = configparser.ConfigParser()
 config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config.ini")
 config.read(config_path)
+
+# โหลดค่า Support Priority Levels จาก config.ini
+config = configparser.ConfigParser()
+config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config.ini")
+config.read(config_path)
+
+# โหลดค่าต่ำสุดของ Support Ratio
+min_support_ratio = float(config.get("Container", "required_support_ratio", fallback="0.8"))
+
+# โหลด Support Priority Levels และเพิ่มค่าต่ำสุด
+support_priority_levels = [
+    float(level.strip()) for level in config.get("Container", "support_priority_levels", fallback="1.0, 0.95, 0.9, 0.85").split(",")
+]
+support_priority_levels.append(min_support_ratio)
+support_priority_levels = sorted(support_priority_levels, reverse=True)  # เรียงจากมากไปน้อย
 
 def draw_3d_boxes(container: Container, ax):
     """Draw all boxes in the container in 3D."""
@@ -195,40 +211,89 @@ def draw_box(ax, box: Box):
         )
         ax.add_collection3d(poly)
 
+def has_vertical_clearance(box: Box, placed_boxes: List[Box], container_height: int) -> bool:
+    """
+    ตรวจสอบว่า:
+    - ด้านบนของกล่องมีพื้นที่ว่าง 100%.
+    - ด้านล่างของกล่องมีพื้นที่รองรับอย่างน้อย 75%.
+    """
+    # ตรวจสอบพื้นที่ด้านบน
+    box_top = box.z + box.height
+    for other in placed_boxes:
+        if (
+            other.z >= box_top and  # กล่องอื่นอยู่ด้านบน
+            not (
+                box.x + box.length <= other.x or
+                box.x >= other.x + other.length or
+                box.y + box.width <= other.y or
+                box.y >= other.y + other.width
+            )
+        ):
+            return False  # มีการบังด้านบน
+
+    # ตรวจสอบพื้นที่ด้านล่าง
+    if not box.is_supported(placed_boxes, container_height):
+        return False  # พื้นที่ด้านล่างไม่เพียงพอ
+
+    return True
+def calculate_support_ratio(box: Box, placed_boxes: List[Box], pallet_height: int) -> float:
+    """
+    คำนวณพื้นที่รองรับด้านล่างของกล่อง (support ratio).
+    """
+    if box.z <= pallet_height:
+        return 1.0  # กล่องอยู่บนพาเลท = 100% รองรับ
+
+    support_area = 0
+    total_area = box.length * box.width
+
+    for b in placed_boxes:
+        if abs(b.z + b.height - box.z) < 1e-6:  # ตรวจสอบว่ากล่องอยู่ด้านล่าง
+            overlap_x = max(0, min(box.x + box.length, b.x + b.length) - max(box.x, b.x))
+            overlap_y = max(0, min(box.y + box.width, b.y + b.width) - max(box.y, b.y))
+            support_area += overlap_x * overlap_y
+
+    return support_area / total_area if total_area > 0 else 0.0
+
 def place_box_in_container(container: Container, box: Box):
     """Attempt to place a box in the container."""
     candidate_positions = container.generate_candidate_positions()
+    failure_reason = "No suitable position found."  # เหตุผลเริ่มต้น
 
-    # จัดลำดับตำแหน่งให้เลือก Z ต่ำที่สุดก่อน
-    candidate_positions = sorted(candidate_positions, key=lambda pos: (pos[2], pos[1], pos[0]))
+    # ลองทั้งแบบไม่หมุน และหมุน
+    for rotation in [False, True]:
+        if rotation:
+            box.length, box.width = box.width, box.length  # หมุนกล่อง
 
-    # Try placing the box without rotation
-    for pos in candidate_positions:
-        x, y, z = pos
-        if x!= 5 and y!= 5:
-            x = x + 5
-            y = y + 5
-            
-        can_place, reason = container.can_place(box, x, y, z)
-        if can_place:
+        # เก็บตำแหน่งที่เหมาะสมพร้อม support_ratio
+        supportable_positions = []
+        for pos in candidate_positions:
+            x, y, z = pos
             box.set_position(x, y, z)
-            container.place_box(box)
-            return "Placed", 1  # No rotation
+            can_place, reason = container.can_place(box, x, y, z)
 
-    # Try placing the box with rotation (swap length and width)
-    box.length, box.width = box.width, box.length
-    for pos in candidate_positions:
-        x, y, z = pos
-        if x!= 5 and y!= 5:
-            x = x + 5
-            y = y + 5
-            
-        can_place, reason = container.can_place(box, x, y, z)
-        if can_place:
-            box.set_position(x, y, z)
-            container.place_box(box)
-            return "Placed", 0  # Rotated
+            if can_place:
+                support_ratio = calculate_support_ratio(box, container.boxes, container.pallet_height)
+                if not has_vertical_clearance(box, container.boxes, container.height):  # ตรวจสอบ clearance แนวดิ่ง
+                    failure_reason = "Vertical clearance not sufficient."
+                    continue
 
-    # Restore original dimensions if placement fails
-    box.length, box.width = box.width, box.length
-    return "Placement failed", -1  # Placement failed
+                supportable_positions.append((support_ratio, (x, y, z)))
+
+        # เรียงตำแหน่งจาก support สูงสุด → ต่ำสุด
+        supportable_positions.sort(reverse=True, key=lambda item: item[0])
+
+        # ลองวางจากลำดับ support_priority_levels
+        for required_support in support_priority_levels:
+            for support_ratio, (x, y, z) in supportable_positions:
+                if support_ratio >= required_support:
+                    box.set_position(x, y, z)
+                    container.place_box(box)
+                    return "Placed", 1 if not rotation else 0
+
+            failure_reason = f"Support ratio below required level ({required_support})."
+
+    # ถ้าไม่มีตำแหน่งที่เหมาะสม
+    if rotation:
+        box.length, box.width = box.width, box.length  # คืนขนาดเดิม
+
+    return f"Placement failed: {failure_reason}", -1
