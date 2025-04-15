@@ -15,7 +15,7 @@ import os
 import logging
 import time
 import tkinter.simpledialog as simpledialog
-from Service.Visualization import enable_zoom
+
 
 class TextHandler(logging.Handler):
     """Custom logging handler to redirect logs to a Tkinter Text widget."""
@@ -34,6 +34,8 @@ class TextHandler(logging.Handler):
 
 class PackingApp:
     def __init__(self, master, start_base_dir):
+        master.bind('<Return>', lambda event: self.load_csv())  # กด Enter เพื่อโหลด CSV
+        master.bind('<Control-q>', lambda event: self.on_closing())  # Ctrl+Q เพื่อปิดโปรแกรม
         # โหลด base_dir จาก config.ini
         config, _ = load_config()
         self.base_dir = config.get("Paths", "base_dir")
@@ -59,10 +61,10 @@ class PackingApp:
         
 
         # Configure grid weights for responsiveness
-        master.columnconfigure(0, weight=1)  # คอลัมน์ซ้าย (Input Frame)
-        master.columnconfigure(1, weight=3)  # คอลัมน์ขวา (3D Visualization)
-        master.rowconfigure(0, weight=0)
-        master.rowconfigure(1, weight=1)  # แถวที่ 1 (3D Visualization)
+        master.columnconfigure(0, weight=1)  # ซ้าย 1/5
+        master.columnconfigure(1, weight=4)  # ขวา 4/5
+        master.rowconfigure(0, weight=0)     # Toolbar
+        master.rowconfigure(1, weight=1)     # Content
 
         self.container_length = tk.IntVar()
         self.container_width = tk.IntVar()
@@ -92,6 +94,7 @@ class PackingApp:
         button_frame = tk.Frame(input_frame)  # เพิ่ม Frame สำหรับปุ่ม
         button_frame.grid(row=4, column=0, columnspan=2, pady=10, sticky="ew")
         self.load_button = tk.Button(button_frame, text="Load CSV", command=self.load_csv, bg="#f0f0f0")
+        master.bind('<Return>', lambda event: self.load_csv())  # กด Enter เพื่อโหลด CSV
         self.load_button.pack(side="left", fill="x", expand=True, padx=5)
         self.run_button = tk.Button(button_frame, text="Run Packing", command=self.run_packing)
         self.run_button.pack(side="left", fill="x", expand=True, padx=5)
@@ -102,7 +105,8 @@ class PackingApp:
 
         # Visualization Frame
         self.visualization_frame = tk.LabelFrame(master, text="3D Visualization", padx=10, pady=10)
-        self.visualization_frame.grid(row=1, column=1, sticky="nsew", padx=10, pady=10)
+        self.visualization_frame.grid(row=1, column=1, rowspan=2, sticky="nsew", padx=10, pady=10)
+
 
         # ปรับขนาด Figure ให้สูงเต็มจอ
         self.fig = plt.Figure(figsize=(14, 20))  # ขนาดกว้าง 14 นิ้ว สูง 20 นิ้ว
@@ -110,8 +114,6 @@ class PackingApp:
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.visualization_frame)
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
-        # เปิดใช้งานฟีเจอร์ซูม
-        enable_zoom(self.ax, self.canvas)
 
         # Summary Frame
         self.summary_frame = tk.LabelFrame(master, text="Summary", padx=10, pady=10)
@@ -119,17 +121,6 @@ class PackingApp:
         self.summary_text = tk.Text(self.summary_frame, height=10, width=80)
         self.summary_text.pack(fill=tk.BOTH, expand=True)
 
-        # Log Viewer Frame
-        self.log_frame = tk.LabelFrame(master, text="Log Viewer", padx=10, pady=10)
-        self.log_frame.grid(row=2, column=1, sticky="nsew", padx=10, pady=10)
-        self.log_text = tk.Text(self.log_frame, height=10, width=50, bg="#f9f9f9", state="normal")
-        self.log_text.pack(fill=tk.BOTH, expand=True)
-
-        # Set up logging to the log viewer
-        log_handler = TextHandler(self.log_text)
-        log_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
-        logging.getLogger().addHandler(log_handler)
-        logging.getLogger().setLevel(logging.INFO)  # บันทึกทุกระดับ
 
     def on_hover(self, event):
         event.widget.config(bg="#d0d0d0")  # Change color on hover
@@ -218,23 +209,27 @@ class PackingApp:
                 if result == "Placed":
                     placed_count += 1
                     placed_volume += box.get_volume()
-                    cube_utilization = self.calculate_utilization(box, self.container)  # คำนวณ % Cube
+                    cube_utilization = self.calculate_utilization(box, self.container)
                     self.summary_text.insert(
                         tk.END,
-                        f"Box {i+1} (SKU: {box.sku}) placed at x={box.x}, y={box.y}, z={box.z} with Rotation={rotation}\n",
+                        f"Box {i+1} (SKU: {box.sku}) placed at x={box.x}, y={box.y}, z={box.z} with Rotation={rotation}\n"
                     )
-                    placed_boxes_info.append(
-                        [
-                            box.sku,
-                            round(box.y, 2),
-                            round(box.x, 2),
-                            round(box.z, 2),
-                            str(rotation),
-                            round(cube_utilization, 2),  # Placeholder สำหรับ % Cube
-                            0,  # Placeholder สำหรับ % Wgt
-                            str(box.priority),
-                        ]
-                    )
+                    placed_boxes_info.append([
+                        box.sku, 
+                        round(box.y, 2),
+                        round(box.x, 2),
+                        round(box.z, 2),
+                        str(rotation),
+                        round(cube_utilization, 2),
+                        0,
+                        str(box.priority)
+                    ])
+
+                    # วาดกล่องแบบสะสมแล้ว update กราฟทีละกล่อง
+                    draw_3d_boxes_with_summary(self.container, 0, self.ax)
+                    self.canvas.draw()
+                    self.master.update_idletasks()
+                    self.master.update()  # เพิ่มความลื่นไหล
                 else:
                     failed_boxes.append(
                         [box.sku, box.length, box.width, box.height, box.priority, result]
@@ -267,12 +262,10 @@ class PackingApp:
 
             # เพิ่ม "Truck #1" เป็นแถวแรกใน placed_boxes_info
             placed_boxes_info.insert(
-                0,  # แทรกที่ตำแหน่งแถวแรก
-                [
-                    "Truck #1"
-                       
-                ]
+                0,
+                ["Truck #1", "", "", "", "", "", "", ""]
             )
+            
 
             # สร้าง DataFrame จาก placed_boxes_info
             self.placed_df = pd.DataFrame(

@@ -12,9 +12,7 @@ from typing import List
 config = configparser.ConfigParser()
 config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config.ini")
 config.read(config_path)
-
 # โหลดค่า Support Priority Levels จาก config.ini
-config = configparser.ConfigParser()
 config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config.ini")
 config.read(config_path)
 
@@ -57,51 +55,6 @@ def draw_3d_boxes(container: Container, ax):
     ax.set_ylabel("Y (Length mm)",fontsize=8)
     ax.set_zlabel("Z (Height mm)",fontsize=8)
 
-def enable_zoom(ax, canvas=None, max_limits=None):
-    """Enable zoom functionality for a 3D plot with boundary constraints."""
-    def on_scroll(event):
-        """Handle scroll events for zooming."""
-        scale_factor = 1.1  # กำหนดอัตราการซูม
-        if event.button == 'up':  # Scroll Up -> Zoom In
-            new_xlim = [coord / scale_factor for coord in ax.get_xlim()]
-            new_ylim = [coord / scale_factor for coord in ax.get_ylim()]
-            new_zlim = [coord / scale_factor for coord in ax.get_zlim()]
-        elif event.button == 'down':  # Scroll Down -> Zoom Out
-            new_xlim = [coord * scale_factor for coord in ax.get_xlim()]
-            new_ylim = [coord * scale_factor for coord in ax.get_ylim()]
-            new_zlim = [coord * scale_factor for coord in ax.get_zlim()]
-        else:
-            return
-
-        # ตรวจสอบขอบเขตไม่ให้เกิน max_limits (ถ้ากำหนดไว้)
-        if max_limits:
-            new_xlim = [
-                max(new_xlim[0], max_limits['x'][0]),
-                min(new_xlim[1], max_limits['x'][1]),
-            ]
-            new_ylim = [
-                max(new_ylim[0], max_limits['y'][0]),
-                min(new_ylim[1], max_limits['y'][1]),
-            ]
-            new_zlim = [
-                max(new_zlim[0], max_limits['z'][0]),
-                min(new_zlim[1], max_limits['z'][1]),
-            ]
-
-        # อัปเดตขอบเขตแกน
-        ax.set_xlim(new_xlim)
-        ax.set_ylim(new_ylim)
-        ax.set_zlim(new_zlim)
-
-        # อัปเดตการแสดงผล
-        if canvas:
-            canvas.draw()  # สำหรับ Tkinter
-        else:
-            plt.draw()  # สำหรับ Matplotlib ปกติ
-
-    # เชื่อมต่อ Scroll Event กับฟังก์ชัน on_scroll
-    ax.figure.canvas.mpl_connect('scroll_event', on_scroll)
-    
 def draw_3d_boxes_with_summary(container: Container, utilization: float, ax):
     draw_3d_boxes(container, ax)
 
@@ -140,8 +93,6 @@ def draw_3d_boxes_with_summary(container: Container, utilization: float, ax):
         fontsize=8,
         title="BoxTypes"
     )
-
-    enable_zoom(ax)  # Enable zoom functionality
     
 def draw_container(ax, container: Container):
     """Draw the container frame in 3D."""
@@ -255,45 +206,98 @@ def calculate_support_ratio(box: Box, placed_boxes: List[Box], pallet_height: in
     return support_area / total_area if total_area > 0 else 0.0
 
 def place_box_in_container(container: Container, box: Box):
-    """Attempt to place a box in the container."""
+    """
+    วางกล่องโดยคำนึงถึง:
+    - ทดลองทุกตำแหน่งที่ระดับ z เดียวกันก่อน
+    - ลองตามลำดับ support_priority_levels (จากมาก -> น้อย)
+    - ตรวจสอบ clearance ด้านบน 100%
+    - ตรวจสอบความมั่นคง (is_stable_platform)
+    - วางเมื่อเจอค่าที่ดีที่สุดและผ่านทุกเงื่อนไข
+    - บันทึกเหตุผลที่กล่องไม่สามารถวางได้ใน log
+    """
+    import logging
     candidate_positions = container.generate_candidate_positions()
-    failure_reason = "No suitable position found."  # เหตุผลเริ่มต้น
+    candidate_positions.sort(key=lambda p: (p[2], p[1], p[0]))  # Z -> Y -> X
 
-    # ลองทั้งแบบไม่หมุน และหมุน
-    for rotation in [False, True]:
-        if rotation:
-            box.length, box.width = box.width, box.length  # หมุนกล่อง
+    from collections import defaultdict
+    positions_by_z = defaultdict(list)
+    for pos in candidate_positions:
+        positions_by_z[pos[2]].append(pos)
 
-        # เก็บตำแหน่งที่เหมาะสมพร้อม support_ratio
-        supportable_positions = []
-        for pos in candidate_positions:
-            x, y, z = pos
-            box.set_position(x, y, z)
-            can_place, reason = container.can_place(box, x, y, z)
+    best_option = None
+    best_support = -1
 
-            if can_place:
-                support_ratio = calculate_support_ratio(box, container.boxes, container.pallet_height)
-                if not has_vertical_clearance(box, container.boxes, container.height):  # ตรวจสอบ clearance แนวดิ่ง
-                    failure_reason = "Vertical clearance not sufficient."
-                    continue
-
-                supportable_positions.append((support_ratio, (x, y, z)))
-
-        # เรียงตำแหน่งจาก support สูงสุด → ต่ำสุด
-        supportable_positions.sort(reverse=True, key=lambda item: item[0])
-
-        # ลองวางจากลำดับ support_priority_levels
+    for z in sorted(positions_by_z.keys()):
+        logging.debug(f"\n🔽 Checking Z level: {z} mm")
         for required_support in support_priority_levels:
-            for support_ratio, (x, y, z) in supportable_positions:
-                if support_ratio >= required_support:
+            logging.debug(f"  ➤ Trying support level: {required_support:.2f}")
+            for rotation in [False, True]:
+                if rotation:
+                    box.length, box.width = box.width, box.length
+                rotation_flag = "Rotated" if rotation else "Normal"
+
+                for x, y, _ in positions_by_z[z]:
                     box.set_position(x, y, z)
-                    container.place_box(box)
-                    return "Placed", 1 if not rotation else 0
+                    can_place, reason = container.can_place(box, x, y, z)
+                    if not can_place:
+                        logging.debug(f"    ✘ [{rotation_flag}] ({x},{y},{z}) cannot place: {reason}")
+                        continue
 
-            failure_reason = f"Support ratio below required level ({required_support})."
+                    if not has_vertical_clearance(box, container.boxes, container.height):
+                        logging.debug(f"    ✘ [{rotation_flag}] ({x},{y},{z}) blocked above")
+                        continue
 
-    # ถ้าไม่มีตำแหน่งที่เหมาะสม
-    if rotation:
-        box.length, box.width = box.width, box.length  # คืนขนาดเดิม
+                    support_ratio = calculate_support_ratio(box, container.boxes, container.pallet_height)
+                    if support_ratio < required_support:
+                        logging.debug(f"    ✘ [{rotation_flag}] ({x},{y},{z}) support {support_ratio:.2f} < {required_support:.2f}")
+                        continue
 
-    return f"Placement failed: {failure_reason}", -1
+                    if not is_stable_platform(box, container.boxes, container.pallet_height):
+                        logging.debug(f"    ✘ [{rotation_flag}] ({x},{y},{z}) not stable")
+                        continue
+
+                    logging.debug(f"    ✔ [{rotation_flag}] ({x},{y},{z}) valid with support {support_ratio:.2f}")
+
+                    if support_ratio > best_support:
+                        best_support = support_ratio
+                        best_option = (x, y, z, rotation)
+
+                if rotation:
+                    box.length, box.width = box.width, box.length
+
+            if best_option:
+                break  # หยุดที่ support level นี้พอ
+        if best_option:
+            break  # หยุดที่ z นี้พอ ถ้าเจอจุดวางแล้ว
+
+    if best_option:
+        x, y, z, rotation = best_option
+        if rotation:
+            box.length, box.width = box.width, box.length
+        box.set_position(x, y, z)
+        container.place_box(box)
+        logging.info(f"✅ Placed box '{box.sku}' at ({x},{y},{z}) with support {best_support:.2f}, rotation: {'Yes' if rotation else 'No'}")
+        return "Placed", 0 if rotation else 1
+
+    logging.warning(f"❌ Box '{box.sku}' (Priority {box.priority}) could not be placed — no valid position met all conditions.")
+    return "Placement failed: No suitable stable position found", -1
+
+
+
+def is_stable_platform(box: Box, placed_boxes: List[Box], pallet_height: int) -> bool:
+    """
+    ตรวจสอบว่า platform ด้านล่างของกล่องนั้นมีความมั่นคงพอ
+    """
+    if box.z <= pallet_height:
+        return True  # อยู่บนพาเลท ถือว่าเสถียร
+
+    stable_blocks = 0
+    for other in placed_boxes:
+        if abs(other.z + other.height - box.z) < 1e-6:
+            overlap_x = max(0, min(box.x + box.length, other.x + other.length) - max(box.x, other.x))
+            overlap_y = max(0, min(box.y + box.width, other.y + other.width) - max(box.y, other.y))
+            area = overlap_x * overlap_y
+            if area > 0:
+                stable_blocks += 1
+
+    return stable_blocks >= 1

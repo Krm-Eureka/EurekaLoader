@@ -64,9 +64,9 @@ class Container:
         if not self.boxes:
             return [
                 (
-                    int(self.start_x) + int(GAP),
-                    int(self.start_y) + int(GAP),
-                    self.pallet_height,
+                    int(self.start_x) + int(GAP), # x
+                    int(self.start_y) + int(GAP), # y
+                    self.pallet_height, # z (pallet height)
                 )
             ]
 
@@ -79,7 +79,7 @@ class Container:
                         if (
                             self.start_x <= x < self.end_x
                             and self.start_y <= y < self.end_y
-                            and 0 <= z < self.end_z
+                            and 0 <= z <= self.end_z
                         ):
                             positions.add((int(x), int(y), int(z)))
         return sorted(positions, key=lambda pos: (pos[2], pos[1], pos[0]))
