@@ -34,14 +34,15 @@ class Container:
         box_end_z = z + box.height
 
         if (
-            x < 0
-            or y < 0
-            or z < 0
-            or box_end_x > self.length
-            or box_end_y > self.width
-            or box_end_z > self.height
-        ):
-            return False, "Out of container bounds"
+                x < self.start_x + GAP
+                or y < self.start_y + GAP
+                or z < 0
+                or x + box.length > self.end_x - GAP
+                or y + box.width > self.end_y - GAP
+                or z + box.height > self.end_z
+            ):
+                return False, "Out of container bounds (GAP)"
+
 
         box.set_position(x, y, z)
 
@@ -60,13 +61,13 @@ class Container:
         self.boxes.append(box)
 
     def generate_candidate_positions(self) -> List[Tuple[int, int, int]]:
-        """Generate candidate positions for placing boxes."""
+        """Generate candidate positions for placing boxes (favoring corners first)."""
         if not self.boxes:
             return [
                 (
-                    int(self.start_x) + int(GAP), # x
-                    int(self.start_y) + int(GAP), # y
-                    self.pallet_height, # z (pallet height)
+                    int(self.start_x) + int(GAP),
+                    int(self.start_y) + int(GAP),
+                    self.pallet_height,
                 )
             ]
 
@@ -82,4 +83,22 @@ class Container:
                             and 0 <= z <= self.end_z
                         ):
                             positions.add((int(x), int(y), int(z)))
-        return sorted(positions, key=lambda pos: (pos[2], pos[1], pos[0]))
+
+        def min_distance_to_corner(x, y):
+            # ใช้ตำแหน่งมุมแบบหัก GAP เพื่อหลีกเลี่ยงเลยขอบ
+            corners = [
+                (self.start_x, self.start_y),
+                (self.end_x - GAP, self.start_y),
+                (self.start_x, self.end_y - GAP),
+                (self.end_x - GAP, self.end_y - GAP),
+            ]
+            return min(((x - cx) ** 2 + (y - cy) ** 2) ** 0.5 for cx, cy in corners)
+
+        return sorted(
+            positions,
+            key=lambda pos: (pos[2], min_distance_to_corner(pos[0], pos[1]))
+        )
+
+
+
+    
