@@ -1,49 +1,47 @@
 import os
 import sys
+import socket
 import logging
 import tkinter as tk
+from tkinter import messagebox
 from Service.UI import PackingApp
 from Service.config_manager import load_config
 
-# --- Load Configuration ---
-try:
-    config, base_dir = load_config()
-except RuntimeError as e:
-    print(f"Configuration Error: {e}")
-    sys.exit(1)
+# --- Instance Lock Configuration ---
+HOST = "127.0.0.1"
+PORT = 55555
 
-# --- Logging ---
-logging.basicConfig(
-    filename=os.path.join(base_dir, "appLogging.log"),
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-)
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.INFO)
-formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-console_handler.setFormatter(formatter)
-logging.getLogger().addHandler(console_handler)
+def is_another_instance_running():
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.bind((HOST, PORT))
+        s.listen(1)
+        return False, s  # No instance running
+    except OSError:
+        return True, None  # Another instance is already running
 
 # --- Loader Application ---
 class LoaderApp:
-    def __init__(self, root):
+    def __init__(self, root, base_dir, lock_socket):
         self.root = root
+        self.lock_socket = lock_socket
+        self.base_dir = base_dir
         self.root.title("Loading EurekaLoader")
         self.root.geometry("500x350")
         self.root.resizable(False, False)
 
-        # Center the window on the screen
+        # Center the window on screen
         screen_width = self.root.winfo_screenwidth()
         screen_height = self.root.winfo_screenheight()
         x = (screen_width // 2) - (500 // 2)
         y = (screen_height // 2) - (350 // 2)
         self.root.geometry(f"500x350+{x}+{y}")
 
-        # ใช้ Canvas เพื่อวาดพื้นหลัง
+        # Canvas background
         self.canvas = tk.Canvas(self.root, width=500, height=350, highlightthickness=0, bg="#f0f0f0")
         self.canvas.pack(fill="both", expand=True)
 
-        # เพิ่มโลโก้ EA_Logo.png
+        # Logo
         logo_path = os.path.join(base_dir, "EA_Logo.png")
         self.logo = tk.PhotoImage(file=logo_path)
         self.logo_label = tk.Label(self.root, image=self.logo, bg="#f0f0f0")
@@ -66,11 +64,9 @@ class LoaderApp:
         )
         self.progress_label.place(relx=0.5, rely=0.75, anchor="center")
 
-        # Start updating progress bar
         self.update_progress()
 
     def update_progress(self):
-        """Update the progress bar."""
         current_width = self.progress.coords(self.progress_bar)[2]
         if current_width < 400:
             self.progress.coords(self.progress_bar, 0, 0, current_width + 10, 20)
@@ -81,21 +77,51 @@ class LoaderApp:
             self.root.after(500, self.start_main_app)
 
     def start_main_app(self):
-        """Start the main application."""
         self.root.destroy()
         root = tk.Tk()
-        root.state('zoomed') 
-        root.lift() # ยกหน้าต่างขึ้นมา root.attributes('-topmost', True)
-
-        app = PackingApp(root, base_dir)
+        root.state('zoomed')
+        icon_path = os.path.join(self.base_dir, "favicon.ico")
+        if os.path.exists(icon_path):
+            root.iconbitmap(icon_path)
+        app = PackingApp(root, self.base_dir)
         logging.info("Application started.")
         root.mainloop()
-        
 
-# --- Main Application ---
+        # ปิด socket เมื่อโปรแกรมจบ
+        if self.lock_socket:
+            self.lock_socket.close()
+
+# --- Main Function ---
 def main():
+    # Load config
+    try:
+        config, base_dir = load_config()
+    except RuntimeError as e:
+        print(f"Configuration Error: {e}")
+        sys.exit(1)
+
+    # Setup logging
+    logging.basicConfig(
+        filename=os.path.join(base_dir, "appLogging.log"),
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+    )
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+    console_handler.setFormatter(formatter)
+    logging.getLogger().addHandler(console_handler)
+
+    # Check for duplicate instance
+    already_running, lock_socket = is_another_instance_running()
+    if already_running:
+        tk.Tk().withdraw()
+        messagebox.showinfo("Already Running", "Eureka Loader is already open.")
+        sys.exit(0)
+
+    # Start loader window
     root = tk.Tk()
-    loader = LoaderApp(root)
+    loader = LoaderApp(root, base_dir, lock_socket)
     root.mainloop()
 
 if __name__ == "__main__":

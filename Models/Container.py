@@ -10,6 +10,7 @@ config = configparser.ConfigParser()
 config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config.ini")
 config.read(config_path)
 GAP = float(config.get("Container", "gap", fallback=5))  # ใช้ค่า fallback เป็น 5 หากไม่มีใน config.ini
+TopSafe = float(config.get("Container", "safeTop", fallback=50))
 
 class Container:
     def __init__(self, length: int, width: int, height: int, color: str, pallet: Pallet):
@@ -39,7 +40,7 @@ class Container:
                 or z < 0
                 or x + box.length > self.end_x - GAP
                 or y + box.width > self.end_y - GAP
-                or z + box.height > self.end_z
+                # or z + box.height > self.end_z
             ):
                 return False, "Out of container bounds (GAP)"
 
@@ -55,6 +56,9 @@ class Container:
         if not box.is_supported(self.boxes, self.pallet_height):
             return False, "Box not supported from below"
 
+        # ✅ เพิ่ม check หากล้นด้านบน เพื่อแสดงใน summary
+        if box_end_z > self.end_z:
+            return True, "Box placed but exceeds container height"
         return True, "OK"
 
     def place_box(self, box: Box):
@@ -80,7 +84,7 @@ class Container:
                         if (
                             self.start_x <= x < self.end_x
                             and self.start_y <= y < self.end_y
-                            and 0 <= z <= self.end_z
+                            # and 0 <= z <= self.end_z
                         ):
                             positions.add((int(x), int(y), int(z)))
 

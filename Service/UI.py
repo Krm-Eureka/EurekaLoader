@@ -107,11 +107,11 @@ class PackingApp:
 
         # Visualization Frame
         self.visualization_frame = tk.LabelFrame(master, text="3D Visualization", padx=10, pady=10)
-        self.visualization_frame.grid(row=1, column=1, rowspan=2, sticky="nsew", padx=10, pady=10)
+        self.visualization_frame.grid(row=1, column=1, rowspan=2, sticky="nsew", padx=30, pady=10)
 
 
         # ปรับขนาด Figure ให้สูงเต็มจอ
-        self.fig = plt.Figure(figsize=(14, 20))  # ขนาดกว้าง 14 นิ้ว สูง 20 นิ้ว
+        self.fig = plt.Figure(figsize=(16, 30))  # ขนาดกว้าง 14 นิ้ว สูง 20 นิ้ว
         self.ax = self.fig.add_subplot(111, projection="3d")
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.visualization_frame)
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
@@ -274,14 +274,14 @@ class PackingApp:
             placed_volume = 0
 
             for i, box in enumerate(self.boxes_to_place):
-                result, rotation = place_box_in_container(self.container, box)
+                result, rotation, reason = place_box_in_container(self.container, box)
                 if result.startswith("Placed"):
                     placed_count += 1
                     placed_volume += box.get_volume()
                     cube_utilization = self.calculate_utilization(box, self.container)
                     self.summary_text.insert(
                         tk.END,
-                        f"Box {i+1} (SKU: {box.sku}) placed at x={box.x}, y={box.y}, z={box.z} with Rotation={rotation}\n"
+                        f"Box {i+1} (SKU: {box.sku})\nplaced at x={box.x}, y={box.y}, z={box.z} \nwith Rotation={rotation} | Reason: {reason}\n",
                     )
                     placed_boxes_info.append([
                         box.sku, 
