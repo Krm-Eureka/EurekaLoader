@@ -9,7 +9,7 @@ import numpy as np
 config = configparser.ConfigParser()
 config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config.ini")
 config.read(config_path)
-GAP = float(config.get("Container", "gap", fallback=5))  # ใช้ค่า fallback เป็น 2.5 หากไม่มีใน config.ini
+GAP = float(config.get("Container", "gap", fallback=5))  # ใช้ค่า fallback เป็น 5 หากไม่มีใน config.ini
 
 class Container:
     def __init__(self, length: int, width: int, height: int, color: str, pallet: Pallet):
@@ -25,7 +25,7 @@ class Container:
         self.end_x = self.start_x + self.width
         self.end_y = self.start_y + self.length
         self.total_height = self.height + self.pallet_height
-        self.end_z = self.total_height
+        self.end_z = self.total_height - 50
 
     def can_place(self, box: Box, x: int, y: int, z: int) -> Tuple[bool, str]:
         """Check if a box can be placed at the given position."""

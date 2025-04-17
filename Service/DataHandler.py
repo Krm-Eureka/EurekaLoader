@@ -78,8 +78,8 @@ def load_csvFile():
         # เพิ่มการตรวจสอบข้อมูลในไฟล์ CSV
         df = pd.read_csv(temp_path, delimiter=",")  # ระบุ delimiter
         logging.info(f"DataFrame loaded: \n{df.to_string()}")
-
-        required_columns = ["Priority", "BoxTypes", "Width", "Length", "Height"]
+        df.columns = [col.lower() for col in df.columns]  # เปลี่ยนชื่อคอลัมน์เป็นตัวพิมพ์เล็ก
+        required_columns = ["priority", "boxtypes", "width", "length", "height"]
         if not all(col in df.columns for col in required_columns):
             missing_columns = [col for col in required_columns if col not in df.columns]
             logging.error(f"CSV file missing required columns: {missing_columns}")
@@ -88,13 +88,16 @@ def load_csvFile():
 
         boxes_to_place = []
         for _, row in df.iterrows():
+            row_dict = row.to_dict()
             box = Box(
-                length=row["Length"],
-                width=row["Width"],
-                height=row["Height"],
-                sku=row["BoxTypes"],
-                priority=int(row["Priority"]),
+                length=row_dict.pop("length"),
+                width=row_dict.pop("width"),
+                height=row_dict.pop("height"),
+                sku=row_dict.pop("boxtypes"),
+                priority=int(row_dict.pop("priority")),
+                **row_dict  # ที่เหลือส่งเข้าไปเป็น extra_fields
             )
+            print(f"Loaded box: {box.sku}, extras: {box.extra_fields}")
             boxes_to_place.append(box)
 
         logging.info(f"Loaded {len(boxes_to_place)} boxes from CSV.")

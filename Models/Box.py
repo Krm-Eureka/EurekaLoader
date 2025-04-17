@@ -9,13 +9,15 @@ config.read(config_path)
 REQUIRED_SUPPORT_RATIO = float(config.get("Container", "required_support_ratio", fallback=0.8))  # ค่า fallback เป็น 0.8
 
 class Box:
-    def __init__(self, length: int, width: int, height: int, sku: str, priority: int):
+    def __init__(self, length: int, width: int, height: int, sku: str, priority: int, **extra_fields):
         self.length = length + int(5)
         self.width = width + int(5)
         self.height = height + int(5)
         self.sku = sku
         self.priority = priority
         self.x = self.y = self.z = 0
+        # เก็บ field เสริมไว้ใน dict
+        self.extra_fields =  extra_fields 
 
     def set_position(self, x: int, y: int, z: int):
         self.x, self.y, self.z = x, y, z

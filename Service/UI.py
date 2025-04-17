@@ -9,12 +9,12 @@ import matplotlib.pyplot as plt
 import pandas as pd 
 from Service.DataHandler import load_csvFile, export_results
 from Service.config_manager import load_config
-from Service.Visualization import draw_3d_boxes_with_summary
-from Service.Visualization import draw_3d_boxes_with_summary, place_box_in_container
 import os
 import logging
 import time
 import tkinter.simpledialog as simpledialog
+from Service.Visualization import draw_3d_boxes_with_summary, place_box_in_container, draw_box
+
 
 
 class TextHandler(logging.Handler):
@@ -34,8 +34,10 @@ class TextHandler(logging.Handler):
 
 class PackingApp:
     def __init__(self, master, start_base_dir):
-        master.bind('<Return>', lambda event: self.load_csv())  # กด Enter เพื่อโหลด CSV
         master.bind('<Control-q>', lambda event: self.on_closing())  # Ctrl+Q เพื่อปิดโปรแกรม
+        self.step_index = 0  
+        master.bind('<Control-Right>', lambda e: self.show_step_box(forward=True))
+        master.bind('<Control-Left>', lambda e: self.show_step_box(forward=False))
         # โหลด base_dir จาก config.ini
         config, _ = load_config()
         self.base_dir = config.get("Paths", "base_dir")
@@ -94,7 +96,7 @@ class PackingApp:
         button_frame = tk.Frame(input_frame)  # เพิ่ม Frame สำหรับปุ่ม
         button_frame.grid(row=4, column=0, columnspan=2, pady=10, sticky="ew")
         self.load_button = tk.Button(button_frame, text="Load CSV", command=self.load_csv, bg="#f0f0f0")
-        master.bind('<Return>', lambda event: self.load_csv())  # กด Enter เพื่อโหลด CSV
+        # master.bind('<Return>', lambda event: self.load_csv())  # กด Enter เพื่อโหลด CSV
         self.load_button.pack(side="left", fill="x", expand=True, padx=5)
         self.run_button = tk.Button(button_frame, text="Run Packing", command=self.run_packing)
         self.run_button.pack(side="left", fill="x", expand=True, padx=5)
@@ -120,7 +122,74 @@ class PackingApp:
         self.summary_frame.grid(row=2, column=0, columnspan=1, sticky="nsew", padx=10, pady=10)
         self.summary_text = tk.Text(self.summary_frame, height=10, width=80)
         self.summary_text.pack(fill=tk.BOTH, expand=True)
+        master.bind('<Return>', lambda event: self.run_full_packing_pipeline())  # โหลด → วาง → แสดงผล
+        
+    def run_full_packing_pipeline(self):
+        try:
+            config, _ = load_config()
+            data_path = config.get("Paths", "data_path")
+            filepath = os.path.join(data_path, "forimport.csv")
 
+            container_dimensions, self.boxes_to_place = load_csvFile()
+            if container_dimensions is None or self.boxes_to_place is None:
+                return
+
+            container_width, container_length, container_height = container_dimensions
+            self.container_width.set(container_width)
+            self.container_length.set(container_length)
+            self.container_height.set(container_height)
+
+            self.run_packing()
+            self.export_results_btn()
+
+            logging.info("🚀 Full auto packing pipeline completed on ENTER.")
+        except Exception as e:
+            logging.error(f"Error in full packing pipeline: {e}")
+            messagebox.showerror("Error", f"Error: {e}")
+
+    def show_step_box(self, forward=True):
+        if not hasattr(self, "placed_df") or self.placed_df.empty:
+            messagebox.showinfo("Info", "No placement data to display.")
+            return
+
+        data = self.placed_df[1:]  # ข้าม Truck #1
+        total = len(data)
+
+        if forward:
+            self.step_index += 1
+            if self.step_index > total:
+                self.step_index = 0  # แสดงว่างเปล่า
+        else:
+            self.step_index -= 1
+            if self.step_index < 0:
+                self.step_index = total  # ไปจุดสุดท้าย
+
+        self.ax.clear()
+        self.container.pallet.draw_pallet_frame(self.ax)
+
+        if self.step_index == 0:
+            self.ax.set_title("No box displayed (reset state)")
+        else:
+            # วาดกล่องสะสมตามลำดับใน placed_df
+            for j in range(self.step_index):
+                row = data.iloc[j]
+                x, y, z = row["X (mm)"], row["Y (mm)"], row["Z (mm)"]
+                sku = row["SKU"]
+                box = next(
+                    (b for b in self.container.boxes if b.sku == sku and
+                    round(b.x, 2) == x and round(b.y, 2) == y and round(b.z, 2) == z),
+                    None
+                )
+                if box:
+                    draw_box(self.ax, box)
+
+            last_sku = data.iloc[self.step_index - 1]["SKU"]
+            self.ax.set_title(f"Step {self.step_index}: SKU={last_sku}")
+    # 🔧 แก้ล้นขอบ container:
+        self.ax.set_xlim([0, self.container.length])
+        self.ax.set_ylim([0, self.container.width])
+        self.ax.set_zlim([0, self.container.height + self.pallet.height])
+        self.canvas.draw()
 
     def on_hover(self, event):
         event.widget.config(bg="#d0d0d0")  # Change color on hover
@@ -206,7 +275,7 @@ class PackingApp:
 
             for i, box in enumerate(self.boxes_to_place):
                 result, rotation = place_box_in_container(self.container, box)
-                if result == "Placed":
+                if result.startswith("Placed"):
                     placed_count += 1
                     placed_volume += box.get_volume()
                     cube_utilization = self.calculate_utilization(box, self.container)
@@ -224,12 +293,13 @@ class PackingApp:
                         0,
                         str(box.priority)
                     ])
+# แสดงผลกล่องที่วางใน Container ทีละ step ก่อน export
+                    # draw_3d_boxes_with_summary(self.container, 0, self.ax)
+                    # self.canvas.draw()
+                    # self.master.update_idletasks()
+                    # self.master.update()
+                    # time.sleep(0.2)
 
-                    # วาดกล่องแบบสะสมแล้ว update กราฟทีละกล่อง
-                    draw_3d_boxes_with_summary(self.container, 0, self.ax)
-                    self.canvas.draw()
-                    self.master.update_idletasks()
-                    self.master.update()  # เพิ่มความลื่นไหล
                 else:
                     failed_boxes.append(
                         [box.sku, box.length, box.width, box.height, box.priority, result]
@@ -288,6 +358,8 @@ class PackingApp:
 
             draw_3d_boxes_with_summary(self.container, utilization, self.ax)
             self.canvas.draw()
+            # ✅ รีเซต step index
+            self.step_index = 0
             logging.info("Packing process completed successfully.")
             # Export results automatically
             

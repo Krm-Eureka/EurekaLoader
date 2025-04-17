@@ -7,6 +7,7 @@ from Models.Container import Container
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 from typing import List
+import logging
 
 # โหลดค่า BoxColors จาก config.ini
 config = configparser.ConfigParser()
@@ -79,20 +80,23 @@ def draw_3d_boxes_with_summary(container: Container, utilization: float, ax):
     )
 
     # สร้าง Legend สำหรับแสดง SKU และสี
-    legend_elements = []
+    legend_elements = {}
     for box in container.boxes:
-        color = config.get("BoxColors", box.sku, fallback="gray")  # ดึงสีจาก config.ini
-        if not any(legend.get_label() == f"SKU: {box.sku}" for legend in legend_elements):  # ตรวจสอบไม่ให้ซ้ำ
-            legend_elements.append(Patch(facecolor=color, edgecolor='black', label=f"SKU: {box.sku}"))
+        if box.sku not in legend_elements:
+            color = config.get("BoxColors", box.sku, fallback="gray")
+            legend_elements[box.sku] = Patch(facecolor=color, edgecolor='black', label=f"SKU: {box.sku}")
 
-    # เพิ่ม Legend ในกราฟ
     ax.legend(
-        handles=legend_elements,
-        loc='upper left',  # ตำแหน่งของ Legend
-        bbox_to_anchor=(-0.7,1.05),  # ปรับตำแหน่ง Legend
+        handles=list(legend_elements.values()),
+        loc='upper left',
+        bbox_to_anchor=(-0.3, 1.05),  # ยึดมุมซ้ายบนของกราฟ
         fontsize=8,
         title="BoxTypes"
     )
+    
+
+
+
     
 def draw_container(ax, container: Container):
     """Draw the container frame in 3D."""
@@ -205,80 +209,96 @@ def calculate_support_ratio(box: Box, placed_boxes: List[Box], pallet_height: in
 
     return support_area / total_area if total_area > 0 else 0.0
 
+def place_boxes_by_priority(container: Container, boxes: List[Box]):
+    """
+    เรียงลำดับกล่องตาม Priority ก่อน แล้ววางทีละกล่อง
+    """
+    sorted_boxes = sorted(boxes, key=lambda b: b.priority)
+    for box in sorted_boxes:
+        place_box_in_container(container, box)
+
 def place_box_in_container(container: Container, box: Box):
     """
-    วางกล่องโดยคำนึงถึง:
-    - ตรวจสอบตำแหน่งทั้งหมดทุก Z level
-    - ลองทุก support level และทั้งหมุน/ไม่หมุน
-    - ประเมินคะแนนแต่ละตำแหน่ง แล้วเลือกตำแหน่งที่ดีที่สุด
-    - ใช้ is_stable_platform() เฉพาะเมื่อ support ratio < 0.75
-    - บันทึกเหตุผลที่กล่องไม่สามารถวางได้ใน log
-    - ให้ความสำคัญกับตำแหน่ง 4 มุมก่อน
+    Hybrid Placement:
+    - Try tight fit (Z -> X -> Y) first with strict support_priority_levels
+    - Fallback to scoring method only if no position satisfies support threshold
+    - Do NOT adjust_to_center_if_low_support if support < 0.9
+    - Skip scoring if strict mode already yields a placement
     """
     import logging
 
-    def distance_from_edge(x, y, box):
-        return min(
-            x - container.start_x,
-            container.end_x - (x + box.length),
-            y - container.start_y,
-            container.end_y - (y + box.width)
-        )
+    def distance_from_center(x, y):
+        center_x = (container.start_x + container.end_x) / 2
+        center_y = (container.start_y + container.end_y) / 2
+        return ((x - center_x) ** 2 + (y - center_y) ** 2) ** 0.5
 
-    def is_corner_position(x, y, box):
-        corners = [
-            (container.start_x + GAP, container.start_y + GAP),
-            (container.end_x - GAP - box.length, container.start_y + GAP),
-            (container.start_x + GAP, container.end_y - GAP - box.width),
-            (container.end_x - GAP - box.length, container.end_y - GAP - box.width),
-        ]
-        for cx, cy in corners:
-            if abs(x - cx) <= GAP and abs(y - cy) <= GAP:
-                return True
-        return False
+    def count_neighbors(box):
+        count = 0
+        for other in container.boxes:
+            if other == box or abs(other.z - box.z) > 1e-6:
+                continue
+            dx = abs((box.x + box.length / 2) - (other.x + other.length / 2))
+            dy = abs((box.y + box.width / 2) - (other.y + other.width / 2))
+            if dx < max(box.length, other.length) and dy < max(box.width, other.width):
+                count += 1
+        return count
 
-    candidate_positions = container.generate_candidate_positions()
-    scored_positions = []
+    candidate_positions = sorted(
+        container.generate_candidate_positions(),
+        key=lambda pos: (pos[2], pos[0], pos[1])  # Z -> X -> Y
+    )
 
-    for z in sorted(set(pos[2] for pos in candidate_positions)):
-        logging.debug(f"\n🔽 Checking Z level: {z} mm")
-        for required_support in support_priority_levels:
-            logging.debug(f"  ➤ Trying support level: {required_support:.2f}")
-            for rotation in [False, True]:
-                if rotation:
-                    box.length, box.width = box.width, box.length
-                rotation_flag = "Rotated" if rotation else "Normal"
+    # --- Phase 1: Strict Mode (tight placement)
+    for required_support in support_priority_levels:
+        for rotation in [False, True]:
+            if rotation:
+                box.length, box.width = box.width, box.length
 
-                for x, y, _ in [p for p in candidate_positions if p[2] == z]:
+            for x, y, z in candidate_positions:
+                box.set_position(x, y, z)
+                can_place, reason = container.can_place(box, x, y, z)
+                if not can_place:
+                    continue
+
+                if not has_vertical_clearance(box, container.boxes, container.height):
+                    continue
+
+                support_ratio = calculate_support_ratio(box, container.boxes, container.pallet_height)
+                if support_ratio >= required_support:
                     box.set_position(x, y, z)
-                    can_place, reason = container.can_place(box, x, y, z)
-                    if not can_place:
-                        logging.debug(f"    ✘ [{rotation_flag}] ({x},{y},{z}) cannot place: {reason}")
-                        continue
+                    container.place_box(box)
+                    logging.info(f"✅ Placed (tight) box '{box.sku}' at ({x},{y},{z}) with support {support_ratio:.2f}, rotation: {'Yes' if rotation else 'No'}")
+                    return "Placed (tight)", 0 if rotation else 1
 
-                    if not has_vertical_clearance(box, container.boxes, container.height):
-                        logging.debug(f"    ✘ [{rotation_flag}] ({x},{y},{z}) blocked above")
-                        continue
+            if rotation:
+                box.length, box.width = box.width, box.length
 
-                    support_ratio = calculate_support_ratio(box, container.boxes, container.pallet_height)
-                    if support_ratio < required_support:
-                        logging.debug(f"    ✘ [{rotation_flag}] ({x},{y},{z}) support {support_ratio:.2f} < {required_support:.2f}")
-                        continue
+    # --- Phase 2: Scoring Fallback ---
+    scored_positions = []
+    for rotation in [False, True]:
+        if rotation:
+            box.length, box.width = box.width, box.length
 
-                    if support_ratio < 0.75:
-                        # if not is_stable_platform(box, container.boxes, container.pallet_height):
-                        #     logging.debug(f"    ✘ [{rotation_flag}] ({x},{y},{z}) not stable")
-                        #     continue
-                        pass
+        for x, y, z in candidate_positions:
+            box.set_position(x, y, z)
+            can_place, reason = container.can_place(box, x, y, z)
+            if not can_place:
+                continue
 
-                    edge_distance = distance_from_edge(x, y, box)
-                    corner_bonus = 10.0 if is_corner_position(x, y, box) else 0.0
-                    score = (support_ratio * 2) - (z / container.height) - (edge_distance / 1000) + corner_bonus
-                    logging.debug(f"    ✔ [{rotation_flag}] ({x},{y},{z}) valid — support: {support_ratio:.2f}, score: {score:.3f}")
-                    scored_positions.append((score, x, y, z, rotation, support_ratio))
+            if not has_vertical_clearance(box, container.boxes, container.height):
+                continue
 
-                if rotation:
-                    box.length, box.width = box.width, box.length
+            support_ratio = calculate_support_ratio(box, container.boxes, container.pallet_height)
+            if support_ratio < min_support_ratio:
+                continue
+
+            center_distance = distance_from_center(x, y)
+            neighbor_score = count_neighbors(box)
+            score = (support_ratio * 2) - (center_distance / 1000) + (neighbor_score * 0.5)
+            scored_positions.append((score, x, y, z, rotation, support_ratio))
+
+        if rotation:
+            box.length, box.width = box.width, box.length
 
     if scored_positions:
         best = max(scored_positions, key=lambda item: item[0])
@@ -287,11 +307,11 @@ def place_box_in_container(container: Container, box: Box):
             box.length, box.width = box.width, box.length
         box.set_position(x, y, z)
         container.place_box(box)
-        logging.info(f"✅ Placed box '{box.sku}' at ({x},{y},{z}) with support {best_support:.2f}, rotation: {'Yes' if rotation else 'No'}")
-        return "Placed", 0 if rotation else 1
+        logging.info(f"✅ Fallback placed box '{box.sku}' at ({x},{y},{z}) with support {best_support:.2f}, rotation: {'Yes' if rotation else 'No'}")
+        return "Placed (fallback)", 0 if rotation else 1
 
-    logging.warning(f"❌ Box '{box.sku}' (Priority {box.priority}) could not be placed — no valid position met all conditions.")
-    return "Placement failed: No suitable stable position found", -1
+    logging.warning(f"❌ Box '{box.sku}' could not be placed — no valid position found.")
+    return "Placement failed: no position valid", -1
 
 
 
