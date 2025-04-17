@@ -26,7 +26,7 @@ class Container:
         self.end_x = self.start_x + self.width
         self.end_y = self.start_y + self.length
         self.total_height = self.height + self.pallet_height
-        self.end_z = self.total_height - 50
+        self.end_z = self.total_height - TopSafe
 
     def can_place(self, box: Box, x: int, y: int, z: int) -> Tuple[bool, str]:
         """Check if a box can be placed at the given position."""
