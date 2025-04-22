@@ -7,6 +7,7 @@ from Models.Container import Container
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 from typing import List
+# from Service.UI import run_packing_op1
 import logging
 
 # โหลดค่า BoxColors จาก config.ini
@@ -56,6 +57,7 @@ def draw_3d_boxes(container: Container, ax):
     ax.set_ylabel("Y (Length mm)",fontsize=8)
     ax.set_zlabel("Z (Height mm)",fontsize=8)
 
+# แสดงกราฟ 3D ของกล่องใน Container พร้อมสรุป
 def draw_3d_boxes_with_summary(container: Container, utilization: float, ax):
     draw_3d_boxes(container, ax)
 
@@ -93,10 +95,6 @@ def draw_3d_boxes_with_summary(container: Container, utilization: float, ax):
         fontsize=8,
         title="BoxTypes"
     )
-    
-
-
-
     
 def draw_container(ax, container: Container):
     """Draw the container frame in 3D."""
@@ -191,32 +189,34 @@ def has_vertical_clearance(box: Box, placed_boxes: List[Box], container_height: 
         return False  # พื้นที่ด้านล่างไม่เพียงพอ
 
     return True
-def calculate_support_ratio(box: Box, placed_boxes: List[Box], pallet_height: int) -> float:
-    """
-    คำนวณพื้นที่รองรับด้านล่างของกล่อง (support ratio).
-    """
-    if box.z <= pallet_height:
-        return 1.0  # กล่องอยู่บนพาเลท = 100% รองรับ
 
-    support_area = 0
-    total_area = box.length * box.width
+# def calculate_support_ratio(box: Box, placed_boxes: List[Box], pallet_height: int) -> float:
+#     """
+#     คำนวณพื้นที่รองรับด้านล่างของกล่อง (support ratio).
+#     """
+#     if box.z <= pallet_height:
+#         return 1.0  # กล่องอยู่บนพาเลท = 100% รองรับ
 
-    for b in placed_boxes:
-        if abs(b.z + b.height - box.z) < 1e-6:  # ตรวจสอบว่ากล่องอยู่ด้านล่าง
-            overlap_x = max(0, min(box.x + box.length, b.x + b.length) - max(box.x, b.x))
-            overlap_y = max(0, min(box.y + box.width, b.y + b.width) - max(box.y, b.y))
-            support_area += overlap_x * overlap_y
+#     support_area = 0
+#     total_area = box.length * box.width
 
-    return support_area / total_area if total_area > 0 else 0.0
+#     for b in placed_boxes:
+#         if abs(b.z + b.height - box.z) < 1e-6:  # ตรวจสอบว่ากล่องอยู่ด้านล่าง
+#             overlap_x = max(0, min(box.x + box.length, b.x + b.length) - max(box.x, b.x))
+#             overlap_y = max(0, min(box.y + box.width, b.y + b.width) - max(box.y, b.y))
+#             support_area += overlap_x * overlap_y
 
-def place_boxes_by_priority(container: Container, boxes: List[Box]):
-    """
-    เรียงลำดับกล่องตาม Priority ก่อน แล้ววางทีละกล่อง
-    """
-    sorted_boxes = sorted(boxes, key=lambda b: b.priority)
-    for box in sorted_boxes:
-        place_box_in_container(container, box)
-def place_box_in_container(container: Container, box: Box):
+#     return support_area / total_area if total_area > 0 else 0.0
+
+# def place_boxes_by_priority(container: Container, boxes: List[Box]):
+#     """
+#     เรียงลำดับกล่องตาม Priority ก่อน แล้ววางทีละกล่อง
+#     """
+#     sorted_boxes = sorted(boxes, key=lambda b: b.priority)
+#     for box in sorted_boxes:
+#         place_box_in_container(container, box)
+        
+def place_box_in_container(container: Container, box: Box, optional_check: str = "op1"):
     def calculate_support_ratio(box: Box, placed_boxes: List[Box], pallet_height: int) -> float:
         if box.z <= pallet_height:
             return 1.0
@@ -233,67 +233,92 @@ def place_box_in_container(container: Container, box: Box):
         container.generate_candidate_positions(),
         key=lambda pos: pos[2]  # เรียงจาก Z ต่ำสุดขึ้นไป
     )
-
+    print(len(candidate_positions))
     best_position = None
     best_support = -1
     best_rotation = False
     exceeds_container_height = False
 
     for x, y, z in candidate_positions:
-        best_for_this_z = None
-        best_support_z = -1
-        best_rotation_z = False
-
         for rotation in [False, True]:
+            # จำขนาดเดิมไว้ก่อน rotation
+            original_length, original_width = box.length, box.width
             if rotation:
-                box.length, box.width = box.width, box.length
+                box.length, box.width = original_width, original_length
 
+            # ทดสอบตำแหน่งชั่วคราว
+            old_pos = (box.x, box.y, box.z)
             box.set_position(x, y, z)
-            can_place, reason = container.can_place(box, x, y, z)
+            can_place, reason = container.can_place(box, x, y, z, optional_check)
+            box.set_position(*old_pos)  # รีเซตตำแหน่งหลังตรวจสอบ
+            print(f"Can place: {can_place}, reason: {reason}")
             if not can_place:
-                if rotation:
-                    box.length, box.width = box.width, box.length
+                box.length, box.width = original_length, original_width  # รีเซตขนาดด้วย
                 continue
 
             support_ratio = calculate_support_ratio(box, container.boxes, container.pallet_height)
-            if support_ratio >= min_support_ratio and support_ratio > best_support_z:
-                best_for_this_z = (x, y, z)
-                best_support_z = support_ratio
-                best_rotation_z = rotation
-
-            if rotation:
-                box.length, box.width = box.width, box.length
-
-        if best_for_this_z:
-            best_position = best_for_this_z
-            best_support = best_support_z
-            best_rotation = best_rotation_z
-            break  # พบตำแหน่งที่วางได้ใน Z นี้แล้ว ไม่ต้องไป Z อื่น
-
+            if support_ratio >= min_support_ratio and support_ratio > best_support:
+                best_position = (x, y, z)
+                best_support = support_ratio
+                best_rotation = rotation
+            box.length, box.width = original_length, original_width  # รีเซตหลังเทียบเสร็จ
+            print(f"Trying pos=({x},{y},{z}) rot={rotation} | support={support_ratio:.2f}")
     if best_position:
+        print("BEST SUPPORT")
+        
         x, y, z = best_position
         if best_rotation:
             box.length, box.width = box.width, box.length
         box.set_position(x, y, z)
-        container.place_box(box)
-        exceeds = box.z + box.height > container.end_z
+        exceeds = box.z + box.height > container.end_z  # ตรวจสอบว่าล้นความสูงหรือไม่
+        container.place_box(box)  # วางกล่องใน container
         height_note = " (⚠ exceeds container height)" if exceeds else ""
-        return "Placed", 0 if best_rotation else 1, f"Support: {best_support:.2f}{height_note}"
+        print(f"Chosen position: {best_position} | rotation: {best_rotation} | exceeds: {exceeds}")
+        if not exceeds:
+            return {
+                "status": "Confirmed",
+                "rotation": 1 if best_rotation else 0,
+                "support": best_support,
+                "exceeds_end_z": False,
+                "message": f"Support: {best_support:.2f}" ,
+            }
+        # ✳️ ถ้า op2 และล้นความสูง → ไม่วาง
+        if optional_check == "op2" and exceeds:
+            return {
+                "status": "failed",
+                "rotation": -1,
+                "support": best_support,
+                "exceeds_end_z": True,
+                "message": "Box exceeds container height"
+            }
 
-    return "Placement failed: no valid position", -1, "No suitable position found"
+        # วางสำเร็จ แต่สูงเกิน container → ใน op1 ถือว่าวางได้แต่ส่ง failed (จะใช้ในขั้นตอนต่อไป)
+        if optional_check == "op1":
+            return {
+                "status": "failed",
+                "rotation": 1 if best_rotation else 0,
+                "support": best_support,
+                "exceeds_end_z": True,
+                "message": f"Support: {best_support:.2f}" + height_note,
+            }
+    # ถ้าไม่มีตำแหน่งวางเลยเลย
+    if optional_check == "op1":
+        return {
+            "status": "failed",
+            "rotation": 1,  # หมายถึง ไม่หมุนก็ไม่เจอที่วาง
+            "support": 0.0,
+            "exceeds_end_z": False,
+            "message": "No suitable position found"
+        }
+    else:
+        return {
+            "status": "failed",
+            "rotation": -1,  # สำหรับ non-op1 → ไม่พบตำแหน่ง
+            "support": 0.0,
+            "exceeds_end_z": False,
+            "message": "No suitable position found"
+        }
 
-def is_stable_platform(box: Box, placed_boxes: List[Box], pallet_height: int) -> bool:
-    if box.z <= pallet_height:
-        return True
-    stable_blocks = 0
-    for other in placed_boxes:
-        if abs(other.z + other.height - box.z) < 1e-6:
-            overlap_x = max(0, min(box.x + box.length, other.x + other.length) - max(box.x, other.x))
-            overlap_y = max(0, min(box.y + box.width, other.y + other.width) - max(box.y, other.y))
-            area = overlap_x * overlap_y
-            if area > 0:
-                stable_blocks += 1
-    return stable_blocks >= 1
 
 def is_stable_platform(box: Box, placed_boxes: List[Box], pallet_height: int) -> bool:
     """
