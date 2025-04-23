@@ -23,10 +23,10 @@ def load_csvFile(fileForimportPath: str):
             sample_data = (
                 "Container,,C_Width,C_Length,C_Height\n"
                 "F15,,1060,1060,920\n"
-                "Priority,BoxTypes,Width,Length,Height\n"
-                "1,TEST1,100,200,150\n"
-                "2,TEST2,120,220,160\n"
-                "3,TEST3,140,240,170\n"
+                "Priority,BoxTypes,Width,Length,Height,CV\n"
+                "1,TEST1,100,200,150,1\n"
+                "2,TEST2,120,220,160,2\n"
+                "3,TEST3,140,240,170,3\n"
             )
             with open(fileForimportPath, "w", encoding="utf-8") as f:
                 f.write(sample_data)
@@ -62,7 +62,7 @@ def load_csvFile(fileForimportPath: str):
             messagebox.showerror("Error", "Invalid container dimensions.")
             return None, None
 
-        logging.info(f"Container dimensions loaded: Width={container_width}, Length={container_length}, Height={container_height}")
+        logging.debug(f"Container dimensions loaded: Width={container_width}, Length={container_length}, Height={container_height}")
 
         # ----- อ่านข้อมูล Box -----
         box_start_index = next((i for i, line in enumerate(lines) if line.strip().startswith("Priority")), None)
@@ -77,7 +77,7 @@ def load_csvFile(fileForimportPath: str):
 
         # เพิ่มการตรวจสอบข้อมูลในไฟล์ CSV
         df = pd.read_csv(temp_path, delimiter=",")  # ระบุ delimiter
-        logging.info(f"DataFrame loaded: \n{df.to_string()}")
+        logging.debug(f"DataFrame loaded: \n{df.to_string()}")
         df.columns = [col.lower() for col in df.columns]  # เปลี่ยนชื่อคอลัมน์เป็นตัวพิมพ์เล็ก
         required_columns = ["priority", "boxtypes", "width", "length", "height"]
         if not all(col in df.columns for col in required_columns):
@@ -121,16 +121,16 @@ def export_results(placed_df):
             out = row.get("Out")
             if pd.notna(out) and str(out).strip() == "0":
                 export_lines.append(
-                    f"{row['SKU']},{row['Y (mm)']},{row['X (mm)']},{row['Z (mm)']},{row['Rotate']},{row['% Cube']},{row['% Wgt']},{row['Priority']},{row['Out']}"
+                    f"{row['SKU']},{row['Y (mm)']},{row['X (mm)']},{row['Z (mm)']},{row['Rotate']},{row['% Cube']},{row['% Wgt']},{row['Priority']},{row.get('CV', '')},{row['Out']}"
                 )
             else:
                 export_lines.append(
-                    f"{row['SKU']},,,,,,{row['% Wgt']},{row['Priority']},{row['Out']}"
+                    f"{row['SKU']},,,,,,{row['% Wgt']},{row['Priority']},{row.get('CV', '')},{row['Out']}"
                 )
 
         # ✅ ย้ายมาไว้ตรงนี้ (นอกลูป)
         with open(placed_file_export_path, "w", encoding="utf-8") as f:
-            f.write("SKU,Y (mm),X (mm),Z (mm),Rotate,% Cube,% Wgt,Priority,Out\n")
+            f.write("SKU,Y (mm),X (mm),Z (mm),Rotate,% Cube,% Wgt,Priority,CV,Out\n")
             for line in export_lines:
                 f.write(line + "\n")
 

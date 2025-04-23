@@ -4,8 +4,11 @@ import socket
 import logging
 import tkinter as tk
 from tkinter import messagebox
-from Service.UI import PackingApp
+
 from Service.config_manager import load_config
+config, base_dir = load_config()  # ✅ Load config ก่อน logHandler
+from Service import logHandler  # ✅ ใช้ base_dir เพื่อ set logging path
+from Service.UI import PackingApp
 
 # --- Instance Lock Configuration ---
 HOST = "127.0.0.1"
@@ -16,9 +19,9 @@ def is_another_instance_running():
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.bind((HOST, PORT))
         s.listen(1)
-        return False, s  # No instance running
+        return False, s
     except OSError:
-        return True, None  # Another instance is already running
+        return True, None
 
 # --- Loader Application ---
 class LoaderApp:
@@ -30,22 +33,23 @@ class LoaderApp:
         self.root.geometry("500x350")
         self.root.resizable(False, False)
 
-        # Center the window on screen
+        # Center the window
         screen_width = self.root.winfo_screenwidth()
         screen_height = self.root.winfo_screenheight()
         x = (screen_width // 2) - (500 // 2)
         y = (screen_height // 2) - (350 // 2)
         self.root.geometry(f"500x350+{x}+{y}")
 
-        # Canvas background
+        # Canvas
         self.canvas = tk.Canvas(self.root, width=500, height=350, highlightthickness=0, bg="#f0f0f0")
         self.canvas.pack(fill="both", expand=True)
 
         # Logo
         logo_path = os.path.join(base_dir, "EA_Logo.png")
-        self.logo = tk.PhotoImage(file=logo_path)
-        self.logo_label = tk.Label(self.root, image=self.logo, bg="#f0f0f0")
-        self.logo_label.place(relx=0.5, rely=0.3, anchor="center")
+        if os.path.exists(logo_path):
+            self.logo = tk.PhotoImage(file=logo_path)
+            self.logo_label = tk.Label(self.root, image=self.logo, bg="#f0f0f0")
+            self.logo_label.place(relx=0.5, rely=0.3, anchor="center")
 
         # Progress bar
         self.progress_frame = tk.Frame(self.root, bg="#f0f0f0")
@@ -84,45 +88,25 @@ class LoaderApp:
         if os.path.exists(icon_path):
             root.iconbitmap(icon_path)
         app = PackingApp(root, self.base_dir)
-        logging.info("Application started.")
+        logging.info("✅ Application started.")
         root.mainloop()
-
-        # ปิด socket เมื่อโปรแกรมจบ
         if self.lock_socket:
             self.lock_socket.close()
 
 # --- Main Function ---
 def main():
-    # Load config
-    try:
-        config, base_dir = load_config()
-    except RuntimeError as e:
-        print(f"Configuration Error: {e}")
-        sys.exit(1)
-
-    # Setup logging
-    logging.basicConfig(
-        filename=os.path.join(base_dir, "appLogging.log"),
-        level=logging.INFO,
-        format="%(asctime)s - %(levelname)s - %(message)s",
-    )
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
-    formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-    console_handler.setFormatter(formatter)
-    logging.getLogger().addHandler(console_handler)
-
-    # Check for duplicate instance
     already_running, lock_socket = is_another_instance_running()
     if already_running:
         tk.Tk().withdraw()
         messagebox.showinfo("Already Running", "Eureka Loader is already open.")
         sys.exit(0)
 
-    # Start loader window
+    logging.info("🚀 EurekaLoader starting up...")
+
     root = tk.Tk()
     loader = LoaderApp(root, base_dir, lock_socket)
     root.mainloop()
 
 if __name__ == "__main__":
     main()
+    logging.info("🔥 Application closed.")

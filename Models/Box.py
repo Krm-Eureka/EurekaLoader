@@ -17,7 +17,7 @@ class Box:
         self.priority = priority
         self.x = self.y = self.z = 0
         # เก็บ field เสริมไว้ใน dict
-        self.extra_fields =  extra_fields 
+        self.extra_fields = {k.lower(): v for k, v in extra_fields.items()}
 
     def set_position(self, x: int, y: int, z: int):
         self.x, self.y, self.z = x, y, z

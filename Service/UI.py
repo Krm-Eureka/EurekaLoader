@@ -17,8 +17,6 @@ import time
 import tkinter.simpledialog as simpledialog
 from Service.Visualization import draw_3d_boxes_with_summary, place_box_in_container, draw_box
 
-
-
 class TextHandler(logging.Handler):
     """Custom logging handler to redirect logs to a Tkinter Text widget."""
     def __init__(self, text_widget):
@@ -36,7 +34,6 @@ class TextHandler(logging.Handler):
 
 class PackingApp:
     def __init__(self, master, start_base_dir):
-        self.mode_var = tk.StringVar(value="op1")  # กำหนดก่อน bind
         master.bind_all('<Control-q>', lambda e: self.on_closing())  # Ctrl+Q เพื่อปิดโปรแกรม
         self.step_index = 0  
         master.bind('<Control-Right>', lambda e: self.show_step_box(forward=True))
@@ -46,6 +43,8 @@ class PackingApp:
         # โหลด base_dir จาก config.ini
         config, _ = load_config()
         self.base_dir = config.get("Paths", "base_dir")
+        default_mode = config.get("AppSettings", "default_mode", fallback="op1")  # โหลดจาก config.ini
+        self.mode_var = tk.StringVar(value=default_mode)  # ตั้งค่าจากไฟล์แทนการ hardcode
 
         self.master = master
         self.start_base_dir = start_base_dir
@@ -70,8 +69,9 @@ class PackingApp:
         # Configure grid weights for responsiveness
         master.columnconfigure(0, weight=1)  # ซ้าย 1/5
         master.columnconfigure(1, weight=4)  # ขวา 4/5
-        master.rowconfigure(0, weight=0)     # Toolbar
-        master.rowconfigure(1, weight=1)     # Content
+        master.rowconfigure(0, weight=0)   # Toolbar
+        master.rowconfigure(1, weight=3)   # Input Settings (30%)
+        master.rowconfigure(2, weight=7)   # Summary (70%)
 
         self.container_length = tk.IntVar()
         self.container_width = tk.IntVar()
@@ -82,7 +82,7 @@ class PackingApp:
         
         # Input Frame
         input_frame = tk.LabelFrame(master, text="Input Settings", padx=10, pady=10)  # ใช้ LabelFrame เพื่อเพิ่มหัวข้อ
-        input_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=10)
+        input_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=(10,5))
 
         # แสดง Path ปัจจุบันที่หน้าหลัก
         tk.Label(input_frame, text="Current Base Directory:", anchor="w").grid(row=0, column=0, sticky="w", pady=5)
@@ -136,7 +136,7 @@ class PackingApp:
 
         # Summary Frame
         self.summary_frame = tk.LabelFrame(master, text="Summary", padx=10, pady=10)
-        self.summary_frame.grid(row=2, column=0, columnspan=1, sticky="nsew", padx=10, pady=10)
+        self.summary_frame.grid(row=2, column=0, columnspan=1, sticky="nsew", padx=10, pady=(5,10))
         self.summary_text = tk.Text(self.summary_frame, height=10, width=80)
         self.summary_text.pack(fill=tk.BOTH, expand=True)
         master.bind('<Return>', lambda event: self.run_full_packing_pipeline(self.mode_var.get()))  # โหลด → วาง → แสดงผล
@@ -332,11 +332,13 @@ class PackingApp:
                 container_width = int(self.container_width.get())
                 container_height = int(self.container_height.get())
             except ValueError:
+                logging.error("Container dimensions must be valid numbers.")
                 messagebox.showerror("Error", "Container dimensions must be valid numbers.")
                 return
 
 # ตรวจสอบว่าค่าที่ป้อนเป็นตัวเลขบวกและไม่เป็น 0
             if container_length <= 0 or container_width <= 0 or container_height <= 0:
+                logging.error("Container dimensions must be positive numbers and greater than 0.")
                 messagebox.showerror("Error", "Container dimensions must be positive numbers and greater than 0.")
                 return
 # ตรวจสอบว่า box_to_place มีข้อมูลหรือไม่ ในกรณีที่ยังไม่ได้โหลด CSV หรือกดปุ่ม Run Packing ก่อน Load CSV
@@ -382,6 +384,7 @@ class PackingApp:
                 
                 result = place_box_in_container(self.container, box, optional_check="op1")
                 # out = 1 if result["exceeds_end_z"] else (0 if result["status"] == "Confirmed" else 1)
+                logging.info(f"[OP1]📦 Result for {box.sku}: {result['status']} | R={result['rotation']} | Exceeds height? {result.get('exceeds_end_z', False)} | Reason: {result['message']}")
                 out = 0
                 cube_utilization = 0
                 if result["status"] == "Confirmed":
@@ -397,11 +400,15 @@ class PackingApp:
                         tk.END,
                         f"Box {i+1} (SKU: {box.sku})\nplaced at x={box.x}, y={box.y}, z={box.z} \nwith Rotation={result['rotation']} | Reason: {result['message']}\n",
                     )
+                    logging.info(f"[OP1]✅ Confirmed placement for {box.sku} at ({box.x},{box.y},{box.z})")
                 elif result["status"] == "Failed":
                     self.summary_text.insert(
                         tk.END,
                         f"Box {i+1} (SKU: {box.sku}) could not be placed: {result['message']}\n",
                     )
+                    logging.info(f"[OP1]✅ Confirmed placement for {box.sku} at ({box.x},{box.y},{box.z})")
+                    logging.warning(f"[OP1]❌ Failed to place {box.sku}: {result['message']}")
+                form_conveyor = box.extra_fields.get("cv", "")
                 x = round(box.x, 2)
                 y = round(box.y, 2)
                 z = round(box.z, 2)
@@ -414,6 +421,7 @@ class PackingApp:
                     round(cube_utilization, 2),
                     0,
                     str(box.priority),
+                    str(form_conveyor),
                     str(out)
                 ])
 
@@ -437,10 +445,11 @@ class PackingApp:
                 self.summary_text.insert(
                     tk.END, f"  🚫   SKU: {box_info[0]} failed due to: {box_info[-1]}\n"
                 )
+                logging.info(f"[OP1]📋 Creating placed_df with {len(placed_boxes_info)} rows")
 # เพิ่ม "Truck #1" เป็นแถวแรกใน placed_boxes_info
             placed_boxes_info.insert(
                 0,
-                ["Truck #1", "", "", "", "", "", "", ""]
+                ["Truck #1", "", "", "", "", "", "", "", "", ""]
             )
 # สร้าง DataFrame จาก placed_boxes_info
             self.placed_df = pd.DataFrame(
@@ -454,6 +463,7 @@ class PackingApp:
                     "% Cube",
                     "% Wgt",
                     "Priority",
+                    "CV",
                     "Out"
                 ],
             )
@@ -464,13 +474,14 @@ class PackingApp:
             self.canvas.draw()
             # ✅ รีเซต step index
             self.step_index = 0
-            logging.info("Packing process completed successfully.")
+            logging.info("[OP1] Packing process completed successfully.")
+            logging.info("[OP1]💾 Starting export_results...")
             self.export_results_btn()
             # Export results automatically
 # Exception handling 
         except Exception as e:
             messagebox.showerror("Error", f"An error occurred: {e}")
-            logging.error(f"An error occurred: {e}")
+            logging.error(f"[OP1] An error occurred: {e}")
 
     def run_packing_op2(self):
         try:
@@ -542,6 +553,7 @@ class PackingApp:
                         tk.END,
                         f"Box {i+1} (SKU: {box.sku})\nplaced at x={box.x}, y={box.y}, z={box.z} \nwith Rotation={result['rotation']} | Reason: {result['message']}\n",
                     )
+                    form_conveyor = box.extra_fields.get("cv", "")
                     x = round(box.x, 2)
                     y = round(box.y, 2)
                     z = round(box.z, 2)
@@ -563,6 +575,7 @@ class PackingApp:
                     percent_cube,
                     0,
                     str(box.priority),
+                    str(form_conveyor),
                     str(out)
                 ])
 
@@ -589,7 +602,7 @@ class PackingApp:
 # เพิ่ม "Truck #1" เป็นแถวแรกใน placed_boxes_info
             placed_boxes_info.insert(
                 0,
-                ["Truck #1", "", "", "", "", "", "", ""]
+                ["Truck #1", "", "", "", "", "", "", "", "", ""]
             )
 # สร้าง DataFrame จาก placed_boxes_info
             self.placed_df = pd.DataFrame(
@@ -603,6 +616,7 @@ class PackingApp:
                     "% Cube",
                     "% Wgt",
                     "Priority",
+                    "CV",
                     "Out"
                 ],
             )

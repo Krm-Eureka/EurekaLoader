@@ -264,8 +264,6 @@ def place_box_in_container(container: Container, box: Box, optional_check: str =
             box.length, box.width = original_length, original_width  # รีเซตหลังเทียบเสร็จ
             print(f"Trying pos=({x},{y},{z}) rot={rotation} | support={support_ratio:.2f}")
     if best_position:
-        print("BEST SUPPORT")
-        
         x, y, z = best_position
         if best_rotation:
             box.length, box.width = box.width, box.length
@@ -273,46 +271,48 @@ def place_box_in_container(container: Container, box: Box, optional_check: str =
         exceeds = box.z + box.height > container.end_z  # ตรวจสอบว่าล้นความสูงหรือไม่
         container.place_box(box)  # วางกล่องใน container
         height_note = " (⚠ exceeds container height)" if exceeds else ""
-        print(f"Chosen position: {best_position} | rotation: {best_rotation} | exceeds: {exceeds}")
+        print(f"Chosen position: {best_position} | R: {best_rotation} | exceeds: {exceeds}")
         if not exceeds:
             return {
                 "status": "Confirmed",
-                "rotation": 1 if best_rotation else 0,
+                "rotation": 0 if best_rotation else 1,
                 "support": best_support,
                 "exceeds_end_z": False,
                 "message": f"Support: {best_support:.2f}" ,
             }
+        # วางสำเร็จ แต่สูงเกิน container → ใน op1 ถือว่าวางได้แต่ส่ง failed (จะใช้ในขั้นตอนต่อไป)
+        if optional_check == "op1":
+            return {
+                "status": "Failed",
+                "rotation": 0 if best_rotation else 1,
+                "support": best_support,
+                "exceeds_end_z": True,
+                "message": f"Support: {best_support:.2f}" + height_note,
+            }
+            
         # ✳️ ถ้า op2 และล้นความสูง → ไม่วาง
         if optional_check == "op2" and exceeds:
             return {
-                "status": "failed",
+                "status": "Failed",
                 "rotation": -1,
                 "support": best_support,
                 "exceeds_end_z": True,
                 "message": "Box exceeds container height"
             }
 
-        # วางสำเร็จ แต่สูงเกิน container → ใน op1 ถือว่าวางได้แต่ส่ง failed (จะใช้ในขั้นตอนต่อไป)
-        if optional_check == "op1":
-            return {
-                "status": "failed",
-                "rotation": 1 if best_rotation else 0,
-                "support": best_support,
-                "exceeds_end_z": True,
-                "message": f"Support: {best_support:.2f}" + height_note,
-            }
+        
     # ถ้าไม่มีตำแหน่งวางเลยเลย
     if optional_check == "op1":
         return {
-            "status": "failed",
-            "rotation": 1,  # หมายถึง ไม่หมุนก็ไม่เจอที่วาง
+            "status": "Failed",
+            "rotation": -1,  # หมายถึง ไม่หมุนก็ไม่เจอที่วาง
             "support": 0.0,
             "exceeds_end_z": False,
             "message": "No suitable position found"
         }
     else:
         return {
-            "status": "failed",
+            "status": "Failed",
             "rotation": -1,  # สำหรับ non-op1 → ไม่พบตำแหน่ง
             "support": 0.0,
             "exceeds_end_z": False,
