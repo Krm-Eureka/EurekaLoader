@@ -3,6 +3,10 @@ from mpl_toolkits.mplot3d.art3d import Line3DCollection
 
 class Pallet:
     def __init__(self, width, length, height, frame_height=None, gap=0.2):
+        w = type(width)
+        l = type(length)
+        h = type(height)
+        print(f"width={w}, length={l}, height={h}")
         self.width = int(width)
         self.length = int(length)
         self.height = int(height)

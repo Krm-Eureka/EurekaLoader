@@ -8,6 +8,8 @@ from Models.Pallet import Pallet
 from Models.Box import Box
 from Models.Container import Container
 import matplotlib.pyplot as plt
+import matplotlib
+
 import pandas as pd 
 from Service.DataHandler import load_csvFile, export_results
 from Service.config_manager import load_config
@@ -34,6 +36,11 @@ class TextHandler(logging.Handler):
 
 class PackingApp:
     def __init__(self, master, start_base_dir):
+        logging.info(f"Matplotlib backend: {matplotlib.get_backend()}")
+        config, _ = load_config()
+        if not matplotlib.get_backend().lower().startswith("tkagg"):
+            logging.warning("⚠️ Current Matplotlib backend may not support GUI rendering properly.")
+
         master.bind_all('<Control-q>', lambda e: self.on_closing())  # Ctrl+Q เพื่อปิดโปรแกรม
         self.step_index = 0  
         master.bind('<Control-Right>', lambda e: self.show_step_box(forward=True))
@@ -72,13 +79,18 @@ class PackingApp:
         master.rowconfigure(0, weight=0)   # Toolbar
         master.rowconfigure(1, weight=3)   # Input Settings (30%)
         master.rowconfigure(2, weight=7)   # Summary (70%)
-
+        
         self.container_length = tk.IntVar()
         self.container_width = tk.IntVar()
         self.container_height = tk.IntVar()
+        
         self.boxes_to_place = []
         self.container = None
-        self.pallet = Pallet(width=1100, length=1100, height=140)
+        P_Width = config.get("Pallet", "P_Width")
+        P_Length = config.get("Pallet", "P_Length")
+        P_Height = config.get("Pallet", "P_Height")
+        print(f"🔁 Pallet dimensions: Width={P_Width}, Length={P_Length}, Height={P_Height}")
+        self.pallet = Pallet(width=int(P_Width), length=int(P_Length), height=int(P_Height))  # ใช้ค่าจาก config.ini
         
         # Input Frame
         input_frame = tk.LabelFrame(master, text="Input Settings", padx=10, pady=10)  # ใช้ LabelFrame เพื่อเพิ่มหัวข้อ
@@ -128,7 +140,15 @@ class PackingApp:
 
 
         # ปรับขนาด Figure ให้สูงเต็มจอ
-        self.fig = plt.Figure(figsize=(16, 30))  # ขนาดกว้าง 14 นิ้ว สูง 20 นิ้ว
+        logging.info("🧪 Creating matplotlib Figure")
+        self.fig = plt.Figure(figsize=(16, 30))
+        try:
+            if self.fig is not None:
+                logging.info(f"Figure DPI: {self.fig.dpi}")
+            else:
+                logging.warning("⚠️ self.fig is None, skipping DPI logging.")
+        except Exception as e:
+            logging.error(f"⚠️ Failed to access .dpi from self.fig: {e}")
         self.ax = self.fig.add_subplot(111, projection="3d")
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.visualization_frame)
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
@@ -137,7 +157,7 @@ class PackingApp:
         # Summary Frame
         self.summary_frame = tk.LabelFrame(master, text="Summary", padx=10, pady=10)
         self.summary_frame.grid(row=2, column=0, columnspan=1, sticky="nsew", padx=10, pady=(5,10))
-        self.summary_text = tk.Text(self.summary_frame, height=10, width=80)
+        self.summary_text = tk.Text(self.summary_frame, height=10, width=80, font=("Segoe UI", 8))
         self.summary_text.pack(fill=tk.BOTH, expand=True)
         master.bind('<Return>', lambda event: self.run_full_packing_pipeline(self.mode_var.get()))  # โหลด → วาง → แสดงผล
         self.progress = ttk.Progressbar(self.summary_frame, orient="horizontal", mode="determinate")
@@ -381,7 +401,7 @@ class PackingApp:
             for i, box in enumerate(self.boxes_to_place):
                 self.progress["value"] = i + 1
                 self.master.update_idletasks()
-                
+                form_conveyor = box.extra_fields.get("cv", "") if hasattr(box, "extra_fields") else ""
                 result = place_box_in_container(self.container, box, optional_check="op1")
                 # out = 1 if result["exceeds_end_z"] else (0 if result["status"] == "Confirmed" else 1)
                 logging.info(f"[OP1]📦 Result for {box.sku}: {result['status']} | R={result['rotation']} | Exceeds height? {result.get('exceeds_end_z', False)} | Reason: {result['message']}")
@@ -408,7 +428,22 @@ class PackingApp:
                     )
                     logging.info(f"[OP1]✅ Confirmed placement for {box.sku} at ({box.x},{box.y},{box.z})")
                     logging.warning(f"[OP1]❌ Failed to place {box.sku}: {result['message']}")
-                form_conveyor = box.extra_fields.get("cv", "")
+                    failed_boxes.append([box.sku, result["message"]])
+                    
+                elif result["status"] == "OutOfContainer":
+                    placed_count += 1
+                    placed_volume += box.get_volume()
+                    out = 0 
+                    cube_utilization = self.calculate_utilization(box, self.container)
+
+                    self.summary_text.insert(
+                        tk.END,
+                        f"⚠ Box {i+1} (SKU: {box.sku}) placed OUTSIDE container height!\n"
+                        f"Position: x={box.x}, y={box.y}, z={box.z} | Rotation={result['rotation']}\n"
+                        f"Reason: {result['message']}\n"
+                    )
+                    logging.warning(f"[OP1]⚠ Placed {box.sku} outside container height at ({box.x},{box.y},{box.z})")
+
                 x = round(box.x, 2)
                 y = round(box.y, 2)
                 z = round(box.z, 2)
@@ -445,7 +480,7 @@ class PackingApp:
                 self.summary_text.insert(
                     tk.END, f"  🚫   SKU: {box_info[0]} failed due to: {box_info[-1]}\n"
                 )
-                logging.info(f"[OP1]📋 Creating placed_df with {len(placed_boxes_info)} rows")
+            logging.info(f"[OP1]📋 Creating placed_df with {len(placed_boxes_info)} rows")
 # เพิ่ม "Truck #1" เป็นแถวแรกใน placed_boxes_info
             placed_boxes_info.insert(
                 0,
@@ -536,15 +571,17 @@ class PackingApp:
             for i, box in enumerate(self.boxes_to_place):
                 self.progress["value"] = i + 1
                 self.master.update_idletasks()
-                
+                form_conveyor = box.extra_fields.get("cv", "") if hasattr(box, "extra_fields") else ""
                 result = place_box_in_container(self.container, box, optional_check="op2")
+                logging.info(f"[OP2]📦 Result for {box.sku}: {result['status']} | R={result['rotation']} | Exceeds height? {result.get('exceeds_end_z', False)} | Reason: {result['message']}")
+
                 out = 1 if result["exceeds_end_z"] else (0 if result["status"] == "Confirmed" else 1)
                 cube_utilization = 0
                 x = ""
                 y = ""
                 z = ""
                 percent_cube = 0
-                # print(result["status"])
+                print(result["status"])
                 if result["status"] == "Confirmed":
                     cube_utilization = self.calculate_utilization(box, self.container) if result["status"] == "Confirmed" else 0
                     placed_count += 1
@@ -553,18 +590,21 @@ class PackingApp:
                         tk.END,
                         f"Box {i+1} (SKU: {box.sku})\nplaced at x={box.x}, y={box.y}, z={box.z} \nwith Rotation={result['rotation']} | Reason: {result['message']}\n",
                     )
-                    form_conveyor = box.extra_fields.get("cv", "")
+                    
                     x = round(box.x, 2)
                     y = round(box.y, 2)
                     z = round(box.z, 2)
                     percent_cube = round(cube_utilization, 2)
+                    logging.info(f"[OP2]✅ Confirmed placement for {box.sku} at ({box.x},{box.y},{box.z})")
                 elif result["status"] == "Failed":
+                    logging.info(f"[OP2]📦 Result for {box.sku}: {result['status']} | R={result['rotation']} | Exceeds height? {result.get('exceeds_end_z', False)} | Reason: {result['message']}")
                     self.summary_text.insert(
                         tk.END,
                         f"Box {i+1} (SKU: {box.sku}) could not be placed: {result['message']}\n",
                     )
-                    out = 1
-                    failed_boxes.append([box.sku, result['message']])
+                    logging.info(f"[OP2]✅ Confirmed placement for {box.sku} at ({box.x},{box.y},{box.z})")
+                    logging.warning(f"[OP2]❌ Failed to place {box.sku}: {result['message']}")
+                    failed_boxes.append([box.sku, result["message"]])
                 
                 placed_boxes_info.append([
                     box.sku, 
@@ -575,7 +615,7 @@ class PackingApp:
                     percent_cube,
                     0,
                     str(box.priority),
-                    str(form_conveyor),
+                    str(form_conveyor), # เพิ่มแก้ไขถ้า CV = "" จะได้ค่าเป็น 0
                     str(out)
                 ])
 
@@ -599,6 +639,7 @@ class PackingApp:
                 self.summary_text.insert(
                     tk.END, f"  🚫   SKU: {box_info[0]} failed due to: {box_info[-1]}\n"
                 )
+            logging.info(f"[OP2]📋 Creating placed_df with {len(placed_boxes_info)} rows")
 # เพิ่ม "Truck #1" เป็นแถวแรกใน placed_boxes_info
             placed_boxes_info.insert(
                 0,
@@ -627,7 +668,8 @@ class PackingApp:
             self.canvas.draw()
             # ✅ รีเซต step index
             self.step_index = 0
-            logging.info("Packing process completed successfully.")
+            logging.info("[OP2] Packing process completed successfully.")
+            logging.info("[OP2]💾 Starting export_results...")
             self.export_results_btn()
             # Export results automatically
 # Exception handling 

@@ -283,7 +283,7 @@ def place_box_in_container(container: Container, box: Box, optional_check: str =
         # วางสำเร็จ แต่สูงเกิน container → ใน op1 ถือว่าวางได้แต่ส่ง failed (จะใช้ในขั้นตอนต่อไป)
         if optional_check == "op1":
             return {
-                "status": "Failed",
+                "status": "OutOfContainer",
                 "rotation": 0 if best_rotation else 1,
                 "support": best_support,
                 "exceeds_end_z": True,
@@ -305,7 +305,7 @@ def place_box_in_container(container: Container, box: Box, optional_check: str =
     if optional_check == "op1":
         return {
             "status": "Failed",
-            "rotation": -1,  # หมายถึง ไม่หมุนก็ไม่เจอที่วาง
+            "rotation": -1,  # หมุนไม่หมุนก็ไม่เจอที่วาง
             "support": 0.0,
             "exceeds_end_z": False,
             "message": "No suitable position found"

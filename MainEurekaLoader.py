@@ -4,6 +4,8 @@ import socket
 import logging
 import tkinter as tk
 from tkinter import messagebox
+from screeninfo import get_monitors
+
 
 from Service.config_manager import load_config
 config, base_dir = load_config()  # ✅ Load config ก่อน logHandler
@@ -79,19 +81,43 @@ class LoaderApp:
         else:
             self.progress_label.config(text="Loading Complete!")
             self.root.after(500, self.start_main_app)
-
+            
+    def move_window_to_configured_screen(self, window):
+        config, _ = load_config()
+        try:
+            screen_index = int(config.get("AppSettings", "screen_index", fallback="0"))
+            monitors = get_monitors()
+            if 0 <= screen_index < len(monitors):
+                selected = monitors[screen_index]
+                window.geometry(f"+{selected.x}+{selected.y}")
+                print(f"🖥️ Window moved to screen {screen_index} at ({selected.x}, {selected.y})")
+            else:
+                print("⚠ Invalid screen index in config.ini")
+        except Exception as e:
+            print(f"⚠ Error reading screen index: {e}")
+            
     def start_main_app(self):
         self.root.destroy()
         root = tk.Tk()
+
+        # ✅ ย้ายหน้าต่างไปยังหน้าจอที่ระบุใน config.ini
+        self.move_window_to_configured_screen(root)
         root.state('zoomed')
+
+        # ✅ ตั้งไอคอนถ้ามี
         icon_path = os.path.join(self.base_dir, "favicon.ico")
         if os.path.exists(icon_path):
             root.iconbitmap(icon_path)
+
+        # ✅ เรียกแอปหลัก
         app = PackingApp(root, self.base_dir)
         logging.info("✅ Application started.")
         root.mainloop()
+
+        # ✅ ปิด socket ถ้าเปิดอยู่
         if self.lock_socket:
             self.lock_socket.close()
+
 
 # --- Main Function ---
 def main():
@@ -106,6 +132,8 @@ def main():
     root = tk.Tk()
     loader = LoaderApp(root, base_dir, lock_socket)
     root.mainloop()
+    
+
 
 if __name__ == "__main__":
     main()
