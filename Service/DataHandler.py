@@ -119,7 +119,7 @@ def export_results(placed_df):
         export_lines = []
         for _, row in placed_df.iterrows():
             out = row.get("Out")
-            if pd.notna(out) and str(out).strip() == "0":
+            if pd.notna(out) and str(out).strip() == "1":
                 export_lines.append(
                     f"{row['SKU']},{row['Y (mm)']},{row['X (mm)']},{row['Z (mm)']},{row['Rotate']},{row['% Cube']},{row['% Wgt']},{row['Priority']},{row.get('CV', '')},{row['Out']}"
                 )

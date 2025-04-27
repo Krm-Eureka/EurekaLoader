@@ -15,7 +15,11 @@ from Service.UI import PackingApp
 # --- Instance Lock Configuration ---
 HOST = "127.0.0.1"
 PORT = 55555
-
+# ✅ Force stdout/stderr to use utf-8
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
 def is_another_instance_running():
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -87,12 +91,18 @@ class LoaderApp:
         try:
             screen_index = int(config.get("AppSettings", "screen_index", fallback="0"))
             monitors = get_monitors()
-            if 0 <= screen_index < len(monitors):
-                selected = monitors[screen_index]
-                window.geometry(f"+{selected.x}+{selected.y}")
-                print(f"🖥️ Window moved to screen {screen_index} at ({selected.x}, {selected.y})")
-            else:
-                print("⚠ Invalid screen index in config.ini")
+
+            if not monitors:
+                print("⚠ No monitors detected.")
+                return
+
+            if screen_index >= len(monitors):
+                print(f"⚠ Screen index {screen_index} not found. Falling back to screen 0.")
+                screen_index = 0
+
+            selected = monitors[screen_index]
+            window.geometry(f"+{selected.x}+{selected.y}")
+            print(f"🖥️ Window moved to screen {screen_index} at ({selected.x}, {selected.y})")
         except Exception as e:
             print(f"⚠ Error reading screen index: {e}")
             

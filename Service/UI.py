@@ -405,7 +405,7 @@ class PackingApp:
                 result = place_box_in_container(self.container, box, optional_check="op1")
                 # out = 1 if result["exceeds_end_z"] else (0 if result["status"] == "Confirmed" else 1)
                 logging.info(f"[OP1]📦 Result for {box.sku}: {result['status']} | R={result['rotation']} | Exceeds height? {result.get('exceeds_end_z', False)} | Reason: {result['message']}")
-                out = 0
+                out = 1
                 cube_utilization = 0
                 if result["status"] == "Confirmed":
                     # answer = messagebox.askyesno(
@@ -433,7 +433,7 @@ class PackingApp:
                 elif result["status"] == "OutOfContainer":
                     placed_count += 1
                     placed_volume += box.get_volume()
-                    out = 0 
+                    out = 1 
                     cube_utilization = self.calculate_utilization(box, self.container)
 
                     self.summary_text.insert(
@@ -575,7 +575,7 @@ class PackingApp:
                 result = place_box_in_container(self.container, box, optional_check="op2")
                 logging.info(f"[OP2]📦 Result for {box.sku}: {result['status']} | R={result['rotation']} | Exceeds height? {result.get('exceeds_end_z', False)} | Reason: {result['message']}")
 
-                out = 1 if result["exceeds_end_z"] else (0 if result["status"] == "Confirmed" else 1)
+                out = 2 if result["exceeds_end_z"] else (1 if result["status"] == "Confirmed" else 2)
                 cube_utilization = 0
                 x = ""
                 y = ""
