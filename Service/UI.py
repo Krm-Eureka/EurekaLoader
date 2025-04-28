@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import ttk 
 from threading import Thread
+import math
 import configparser
 from tkinter import messagebox, filedialog
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -400,12 +401,17 @@ class PackingApp:
 # วนลูปวางกล่องใน Container
             for i, box in enumerate(self.boxes_to_place):
                 self.progress["value"] = i + 1
-                self.master.update_idletasks()
-                form_conveyor = box.extra_fields.get("cv", "") if hasattr(box, "extra_fields") else ""
+                raw_cv = box.extra_fields.get("cv", "0") if hasattr(box, "extra_fields") else "0"
+                if raw_cv is None or (isinstance(raw_cv, float) and math.isnan(raw_cv)):
+                    form_conveyor = "0"
+                else:
+                    form_conveyor = str(int(float(str(raw_cv).strip() or "0")))
+
+
                 result = place_box_in_container(self.container, box, optional_check="op1")
                 # out = 1 if result["exceeds_end_z"] else (0 if result["status"] == "Confirmed" else 1)
                 logging.info(f"[OP1]📦 Result for {box.sku}: {result['status']} | R={result['rotation']} | Exceeds height? {result.get('exceeds_end_z', False)} | Reason: {result['message']}")
-                out = 1
+                out = 2
                 cube_utilization = 0
                 if result["status"] == "Confirmed":
                     # answer = messagebox.askyesno(
@@ -413,6 +419,7 @@ class PackingApp:
                     #     f"Box {box.sku} is within container height.\nDo you want to Confirm placement?",
                     #     icon="question"
                     # )
+                    out = 1
                     cube_utilization = self.calculate_utilization(box, self.container) if result["status"] == "Confirmed" else 0
                     placed_count += 1
                     placed_volume += box.get_volume()
@@ -422,6 +429,7 @@ class PackingApp:
                     )
                     logging.info(f"[OP1]✅ Confirmed placement for {box.sku} at ({box.x},{box.y},{box.z})")
                 elif result["status"] == "Failed":
+                    out = 2
                     self.summary_text.insert(
                         tk.END,
                         f"Box {i+1} (SKU: {box.sku}) could not be placed: {result['message']}\n",
@@ -570,8 +578,13 @@ class PackingApp:
 
             for i, box in enumerate(self.boxes_to_place):
                 self.progress["value"] = i + 1
-                self.master.update_idletasks()
-                form_conveyor = box.extra_fields.get("cv", "") if hasattr(box, "extra_fields") else ""
+                raw_cv = box.extra_fields.get("cv", "0") if hasattr(box, "extra_fields") else "0"
+                if raw_cv is None or (isinstance(raw_cv, float) and math.isnan(raw_cv)):
+                    form_conveyor = "0"
+                else:
+                    form_conveyor = str(int(float(str(raw_cv).strip() or "0")))
+
+
                 result = place_box_in_container(self.container, box, optional_check="op2")
                 logging.info(f"[OP2]📦 Result for {box.sku}: {result['status']} | R={result['rotation']} | Exceeds height? {result.get('exceeds_end_z', False)} | Reason: {result['message']}")
 
