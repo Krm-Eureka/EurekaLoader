@@ -51,11 +51,14 @@ class PackingApp:
         master.bind('<Control-Left>', lambda e: self.show_step_box(forward=False))
         master.bind_all('<Control-k>', lambda e: (print("CTRL+1 triggered"), self.set_mode("op1")))
         master.bind_all('<Control-l>', lambda e: (print("CTRL+2 triggered"), self.set_mode("op2")))
+        self.stop_requested = False
+        master.bind("<Escape>", lambda e: self.cancel_packing())
 
         # โหลด base_dir จาก config.ini
         config, _ = load_config()
         self.base_dir = config.get("Paths", "base_dir")
         default_mode = config.get("AppSettings", "default_mode", fallback="op1")  # โหลดจาก config.ini
+        self.ContainerGap = float(config.get("Container", "gap", fallback="5")) # โหลดจาก config.ini
         self.mode_var = tk.StringVar(value=default_mode)  # ตั้งค่าจากไฟล์แทนการ hardcode
 
         self.master = master
@@ -175,6 +178,11 @@ class PackingApp:
         self.summary_text.insert(tk.END, f"🔁 Mode switched to {mode.upper()}\n")
         self.summary_text.see(tk.END)
         
+    def cancel_packing(self):
+        self.stop_requested = True
+        self.summary_text.insert(tk.END, "🛑 Packing cancelled by user (ESC pressed).\n")
+        self.summary_text.see(tk.END)
+
     def prepare_box_fields(box):
         def safe_int(value):
             try:
@@ -321,8 +329,13 @@ class PackingApp:
     def calculate_utilization(self, box: Box, container: Container) -> float:
         """คำนวณเปอร์เซ็นต์การใช้พื้นที่ของกล่องในคอนเทนเนอร์."""
         box_volume = box.length * box.width * box.height
-        container_volume = container.length * container.width * container.height
+        container_volume = (
+            (container.length - self.ContainerGap) *
+            (container.width - self.ContainerGap) *
+            container.end_z
+        )
         return (box_volume / container_volume) * 100 if container_volume > 0 else 0.0
+
     
     def export_results_btn(self):
         """Export results using data_path from config.ini."""
@@ -460,6 +473,7 @@ class PackingApp:
             placed_count = 0
             failed_boxes = []
             placed_boxes_info = []
+            cube_utilizations_list = []
             placed_volume = 0
             
             # def clean_numeric_field(value: any, default: str = "0") -> str:
@@ -468,7 +482,11 @@ class PackingApp:
             #     except:
             #         return default
 # วนลูปวางกล่องใน Container
+            self.stop_requested = False
             for i, box in enumerate(self.boxes_to_place):
+                if self.stop_requested:
+                    logging.warning("🚫 Packing stopped by user (ESC).")
+                    break
                 self.progress["value"] = i + 1
                 PackingApp.prepare_box_fields(box)
                 form_conveyor = box.cv
@@ -490,6 +508,8 @@ class PackingApp:
                     cube_utilization = self.calculate_utilization(box, self.container) if result["status"] == "Confirmed" else 0
                     placed_count += 1
                     placed_volume += box.get_volume()
+                    percent_cube = round(cube_utilization, 2)
+                    cube_utilizations_list.append(percent_cube) 
                     self.summary_text.insert(
                         tk.END,
                         f"Box {i+1} (SKU: {box.sku})\nplaced at x={box.x}, y={box.y}, z={box.z} \nwith Rotation={result['rotation']} | Reason: {result['message']}\n",
@@ -529,7 +549,7 @@ class PackingApp:
                     x,
                     z,
                     str(result["rotation"]),
-                    round(cube_utilization, 2),
+                    percent_cube,
                     round(box_wgt,2),
                     str(ogw),
                     str(ogl),
@@ -538,106 +558,105 @@ class PackingApp:
                     str(form_conveyor),
                     str(out)
                 ])
-
             end_time = time.time()
+            if self.stop_requested :
+                return
+            else:
 # คำนวน utilization ของ Container
-            container_volume = (
-                self.container.length * self.container.width * self.container.height
-            )
-            utilization = (placed_volume / container_volume) * 100
-# แสดงผลสรุปการวางกล่องใน Container
-            self.summary_text.insert(tk.END, "\nPlacement Summary:\n")
-            self.summary_text.insert(
-                tk.END, f" 📊  Total boxes: {len(self.boxes_to_place)}\n"
-            )
-            self.summary_text.insert(tk.END, f" ✅  Placed boxes: {placed_count}\n")
-            self.summary_text.insert(
-                tk.END, f" ❌ Failed to place: {len(failed_boxes)}\n"
-            )
-            self.summary_text.insert(tk.END, f" 📦 Utilization: {utilization:.2f}%\n")
-            for box_info in failed_boxes:
+                utilization = round(sum(cube_utilizations_list), 2)
+    # แสดงผลสรุปการวางกล่องใน Container
+                self.summary_text.insert(tk.END, "\nPlacement Summary:\n")
                 self.summary_text.insert(
-                    tk.END, f"  🚫   SKU: {box_info[0]} failed due to: {box_info[-1]}\n"
+                    tk.END, f" 📊  Total boxes: {len(self.boxes_to_place)}\n"
                 )
-            logging.info(f"[OP1]📋 Creating placed_df with {len(placed_boxes_info)} rows")
-# เพิ่ม "Truck #1" เป็นแถวแรกใน placed_boxes_info
-            placed_boxes_info.insert(
-                0,
-                ["Truck #1", "", "", "", "", "", "", "", "", "", "", "", ""]
-            )
-# สร้าง DataFrame จาก placed_boxes_info
-            self.placed_df = pd.DataFrame(
-                placed_boxes_info,
-                columns=[
-                    "SKU",
-                    "Y (mm)",
-                    "X (mm)",
-                    "Z (mm)",
-                    "Rotate",
-                    "% Cube",
-                    "Wgt",
-                    "Width",
-                    "Length",
-                    "Height",
-                    "Priority",
-                    "CV",
-                    "Out"
-                ],
-            )
+                self.summary_text.insert(tk.END, f" ✅  Placed boxes: {placed_count}\n")
+                self.summary_text.insert(
+                    tk.END, f" ❌ Failed to place: {len(failed_boxes)}\n"
+                )
+                self.summary_text.insert(tk.END, f" 📦 Utilization: {utilization:.2f}%\n")
+                for box_info in failed_boxes:
+                    self.summary_text.insert(
+                        tk.END, f"  🚫   SKU: {box_info[0]} failed due to: {box_info[-1]}\n"
+                    )
+                logging.info(f"[OP1]📋 Creating placed_df with {len(placed_boxes_info)} rows")
+    # เพิ่ม "Truck #1" เป็นแถวแรกใน placed_boxes_info
+                placed_boxes_info.insert(
+                    0,
+                    ["Truck #1", "", "", "", "", "", "", "", "", "", "", "", ""]
+                )
+    # สร้าง DataFrame จาก placed_boxes_info
+                self.placed_df = pd.DataFrame(
+                    placed_boxes_info,
+                    columns=[
+                        "SKU",
+                        "Y (mm)",
+                        "X (mm)",
+                        "Z (mm)",
+                        "Rotate",
+                        "% Cube",
+                        "Wgt",
+                        "Width",
+                        "Length",
+                        "Height",
+                        "Priority",
+                        "CV",
+                        "Out"
+                    ],
+                )
 
 # แสดงกราฟ 3D ของกล่องใน Container พร้อมสรุป
-            self.progress["value"] = 0
-            if self.fig and self.ax:
-                draw_3d_boxes_with_summary(self.container, utilization, self.ax)
+                self.progress["value"] = 0
+                if self.fig and self.ax:
+                    draw_3d_boxes_with_summary(self.container, utilization, self.ax)
+                    self.canvas.draw()
+                else:
+                    logging.warning("⚠️ Cannot draw visualization: Figure or Axes is None.")
                 self.canvas.draw()
-            else:
-                logging.warning("⚠️ Cannot draw visualization: Figure or Axes is None.")
-            self.canvas.draw()
-            # ✅ รีเซต step index
-            self.step_index = 0
-            logging.info("[OP1] Packing process completed successfully.")
-            # ❗ ตรวจสอบกล่องล้นและ utilization
-            has_over_height = any(
-                row[-1] == "1" and float(row[3]) + float(row[9]) > self.container.end_z
-                for row in placed_boxes_info[1:]
-            )
-            low_utilization = utilization < 80.0
-
-            # เงื่อนไข 1: ทั้งคู่
-            if has_over_height and low_utilization:
-                confirm = messagebox.askyesno(
-                    "Warning: Low Utilization and Over-Height",
-                    f"⚠ Utilization is only {utilization:.2f}%.\n"
-                    f"⚠ Some boxes are placed outside the container height.\n"
-                    "Do you still want to export the result?"
+                # ✅ รีเซต step index
+                self.step_index = 0
+                logging.info("[OP1] Packing process completed successfully.")
+                # ❗ ตรวจสอบกล่องล้นและ utilization
+                has_over_height = any(
+                    row[-1] == "1" and float(row[3]) + float(row[9]) > self.container.end_z
+                    for row in placed_boxes_info[1:]
                 )
-                if not confirm:
-                    self.summary_text.insert(tk.END, "🚫 Export cancelled by user due to over-height and low utilization placement.\n")
-                    return
+                low_utilization = utilization < 80.0
 
-            # เงื่อนไข 2: มีแค่กล่องล้น
-            elif has_over_height:
-                confirm = messagebox.askyesno(
-                    "Warning: Boxes Over Height",
-                    "⚠ Some boxes are placed outside the container height.\nDo you still want to export the result?"
-                )
-                if not confirm:
-                    self.summary_text.insert(tk.END, "🚫 Export cancelled by user due to over-height placement.\n")
-                    return
+                # เงื่อนไข 1: ทั้งคู่
+                if has_over_height and low_utilization:
+                    confirm = messagebox.askyesno(
+                        "Warning: Low Utilization and Over-Height",
+                        f"⚠ Utilization is only {utilization:.2f}%.\n"
+                        f"⚠ Some boxes are placed outside the container height.\n"
+                        "Do you still want to export the result?"
+                    )
+                    if not confirm:
+                        self.summary_text.insert(tk.END, "🚫 Export cancelled by user due to over-height and low utilization placement.\n")
+                        return
 
-            # เงื่อนไข 3: มีแค่ utilization ต่ำ
-            elif low_utilization:
-                confirm = messagebox.askyesno(
-                    "Warning: Low Utilization",
-                    f"⚠ Utilization is only {utilization:.2f}%.\nDo you still want to export the result?"
-                )
-                if not confirm:
-                    self.summary_text.insert(tk.END, "🚫 Export cancelled by user due to low utilization.\n")
-                    return
+                # เงื่อนไข 2: มีแค่กล่องล้น
+                elif has_over_height:
+                    confirm = messagebox.askyesno(
+                        "Warning: Boxes Over Height",
+                        "⚠ Some boxes are placed outside the container height.\nDo you still want to export the result?"
+                    )
+                    if not confirm:
+                        self.summary_text.insert(tk.END, "🚫 Export cancelled by user due to over-height placement.\n")
+                        return
 
-            # ✅ เงื่อนไขปลอดภัย → Export เลย
-            logging.info("[OP1]💾 Starting export_results...")
-            self.export_results_btn()
+                # เงื่อนไข 3: มีแค่ utilization ต่ำ
+                elif low_utilization:
+                    confirm = messagebox.askyesno(
+                        "Warning: Low Utilization",
+                        f"⚠ Utilization is only {utilization:.2f}%.\nDo you still want to export the result?"
+                    )
+                    if not confirm:
+                        self.summary_text.insert(tk.END, "🚫 Export cancelled by user due to low utilization.\n")
+                        return
+
+                # ✅ เงื่อนไขปลอดภัย → Export เลย
+                logging.info("[OP1]💾 Starting export_results...")
+                self.export_results_btn()
             # Export results automatically
 # Exception handling 
         except Exception as e:
@@ -691,10 +710,14 @@ class PackingApp:
 
             placed_boxes_info = []
             failed_boxes = []
+            cube_utilizations_list = []
             placed_volume = 0
             placed_count = 0
-
+            self.stop_requested = False
             for i, box in enumerate(self.boxes_to_place):
+                if self.stop_requested:
+                    logging.warning("🚫 Packing stopped by user (ESC).")
+                    break
                 self.progress["value"] = i + 1
                 PackingApp.prepare_box_fields(box)
                 form_conveyor = box.cv
@@ -714,6 +737,9 @@ class PackingApp:
                     cube_utilization = self.calculate_utilization(box, self.container) if result["status"] == "Confirmed" else 0
                     placed_count += 1
                     placed_volume += box.get_volume()
+                    percent_cube = round(cube_utilization, 2)
+                    cube_utilizations_list.append(percent_cube) 
+                    print("placed_volume", placed_volume)
                     self.summary_text.insert(
                         tk.END,
                         f"Box {i+1} (SKU: {box.sku})\nplaced at x={box.x}, y={box.y}, z={box.z} \nwith Rotation={result['rotation']} | Reason: {result['message']}\n",
@@ -722,7 +748,6 @@ class PackingApp:
                     x = round(box.x, 2)
                     y = round(box.y, 2)
                     z = round(box.z, 2)
-                    percent_cube = round(cube_utilization, 2)
                     logging.info(f"[OP2]✅ Confirmed placement for {box.sku} at ({box.x},{box.y},{box.z})")
                 elif result["status"] == "Failed":
                     logging.info(f"[OP2]📦 Result for {box.sku}: {result['status']} | R={result['rotation']} | Exceeds height? {result.get('exceeds_end_z', False)} | Reason: {result['message']}")
@@ -740,7 +765,7 @@ class PackingApp:
                     x,
                     z,
                     str(result["rotation"]),
-                    round(cube_utilization, 2),
+                    percent_cube,
                     round(box_wgt,2),
                     str(ogw),
                     str(ogl),
@@ -751,78 +776,79 @@ class PackingApp:
                 ])
 
             end_time = time.time()
+            if self.stop_requested :
+                return
+            else:
 # คำนวน utilization ของ Container
-            container_volume = (
-                self.container.length * self.container.width * self.container.height
-            )
-            utilization = (placed_volume / container_volume) * 100
-# แสดงผลสรุปการวางกล่องใน Container
-            self.summary_text.insert(tk.END, "\nPlacement Summary:\n")
-            self.summary_text.insert(
-                tk.END, f" 📊  Total boxes: {len(self.boxes_to_place)}\n"
-            )
-            self.summary_text.insert(tk.END, f" ✅  Placed boxes: {placed_count}\n")
-            self.summary_text.insert(
-                tk.END, f" ❌ Failed to place: {len(failed_boxes)}\n"
-            )
-            self.summary_text.insert(tk.END, f" 📦 Utilization: {utilization:.2f}%\n")
-            for box_info in failed_boxes:
+                utilization = round(sum(cube_utilizations_list), 2)
+    # แสดงผลสรุปการวางกล่องใน Container
+                self.summary_text.insert(tk.END, "\nPlacement Summary:\n")
                 self.summary_text.insert(
-                    tk.END, f"  🚫   SKU: {box_info[0]} failed due to: {box_info[-1]}\n"
+                    tk.END, f" 📊  Total boxes: {len(self.boxes_to_place)}\n"
                 )
-            logging.info(f"[OP2]📋 Creating placed_df with {len(placed_boxes_info)} rows")
-# เพิ่ม "Truck #1" เป็นแถวแรกใน placed_boxes_info
-            placed_boxes_info.insert(
-                0,
-                ["Truck #1", "", "", "", "", "", "", "", "", "", "", "", ""]
-            )
-# สร้าง DataFrame จาก placed_boxes_info
-            self.placed_df = pd.DataFrame(
-                placed_boxes_info,
-                columns=[
-                    "SKU",
-                    "Y (mm)",
-                    "X (mm)",
-                    "Z (mm)",
-                    "Rotate",
-                    "% Cube",
-                    "Wgt",
-                    "Width",
-                    "Length",
-                    "Height",
-                    "Priority",
-                    "CV",
-                    "Out"
-                ],
-            )
+                self.summary_text.insert(tk.END, f" ✅  Placed boxes: {placed_count}\n")
+                self.summary_text.insert(
+                    tk.END, f" ❌ Failed to place: {len(failed_boxes)}\n"
+                )
+                self.summary_text.insert(tk.END, f" 📦 Utilization: {utilization:.2f}%\n")
+                for box_info in failed_boxes:
+                    self.summary_text.insert(
+                        tk.END, f"  🚫   SKU: {box_info[0]} failed due to: {box_info[-1]}\n"
+                    )
+                logging.info(f"[OP2]📋 Creating placed_df with {len(placed_boxes_info)} rows")
+    # เพิ่ม "Truck #1" เป็นแถวแรกใน placed_boxes_info
+                placed_boxes_info.insert(
+                    0,
+                    ["Truck #1", "", "", "", "", "", "", "", "", "", "", "", ""]
+                )
+    # สร้าง DataFrame จาก placed_boxes_info
+                self.placed_df = pd.DataFrame(
+                    placed_boxes_info,
+                    columns=[
+                        "SKU",
+                        "Y (mm)",
+                        "X (mm)",
+                        "Z (mm)",
+                        "Rotate",
+                        "% Cube",
+                        "Wgt",
+                        "Width",
+                        "Length",
+                        "Height",
+                        "Priority",
+                        "CV",
+                        "Out"
+                    ],
+                )
 
 # แสดงกราฟ 3D ของกล่องใน Container พร้อมสรุป
-            self.progress["value"] = 0
-            if self.fig and self.ax:
-                draw_3d_boxes_with_summary(self.container, utilization, self.ax)
-                self.canvas.draw()
-            else:
-                logging.warning("⚠️ Cannot draw visualization: Figure or Axes is None.")
-
-            self.canvas.draw()
-            # ✅ รีเซต step index
-            self.step_index = 0
-            logging.info("[OP2] Packing process completed successfully.")
-            low_utilization = utilization < 80.0
             
-            # เงื่อนไข : utilization ต่ำ
-            if low_utilization:
-                confirm = messagebox.askyesno(
-                    "Warning: Low Utilization",
-                    f"⚠ Utilization is only {utilization:.2f}%.\nDo you still want to export the result?"
-                )
-                if not confirm:
-                    self.summary_text.insert(tk.END, "🚫 Export cancelled by user due to low utilization.\n")
-                    return
+                self.progress["value"] = 0
+                if self.fig and self.ax:
+                    draw_3d_boxes_with_summary(self.container, utilization, self.ax)
+                    self.canvas.draw()
+                else:
+                    logging.warning("⚠️ Cannot draw visualization: Figure or Axes is None.")
 
-            # ✅ เงื่อนไขปลอดภัย → Export เลย
-            logging.info("[OP2]💾 Starting export_results...")
-            self.export_results_btn()
+                self.canvas.draw()
+                # ✅ รีเซต step index
+                self.step_index = 0
+                logging.info("[OP2] Packing process completed successfully.")
+                low_utilization = utilization < 80.0
+                
+                # เงื่อนไข : utilization ต่ำ
+                if low_utilization:
+                    confirm = messagebox.askyesno(
+                        "Warning: Low Utilization",
+                        f"⚠ Utilization is only {utilization:.2f}%.\nDo you still want to export the result?"
+                    )
+                    if not confirm:
+                        self.summary_text.insert(tk.END, "🚫 Export cancelled by user due to low utilization.\n")
+                        return
+
+                # ✅ เงื่อนไขปลอดภัย → Export เลย
+                logging.info("[OP2]💾 Starting export_results...")
+                self.export_results_btn()
             # Export results automatically
 # Exception handling 
         except Exception as e:

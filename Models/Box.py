@@ -32,7 +32,7 @@ class Box:
         self.x, self.y, self.z = x, y, z
 
     def get_volume(self):
-        return self.length * self.width * self.height
+        return  self.width * self.length * self.height
 
     def collides_with(self, other) -> bool:
         return not (
