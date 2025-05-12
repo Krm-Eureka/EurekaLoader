@@ -1,6 +1,7 @@
 from typing import List, Tuple
 import os
 import configparser
+from tkinter import messagebox, filedialog
 from Models.Box import Box
 from Models.Pallet import Pallet
 import numpy as np
@@ -18,7 +19,7 @@ class Container:
         self.width = width
         self.height = height
         self.color = color
-        self.pallet = pallet  # ✅ เพิ่มบรรทัดนี้
+        self.pallet = pallet  
         self.pallet_height = pallet.height
         self.boxes = []
         self.start_x = (pallet.width - self.width) / 2
@@ -31,6 +32,7 @@ class Container:
 
     def can_place(self, box: Box, x: int, y: int, z: int, optional_check: str = "op1") -> Tuple[bool, str]:
         """Check if a box can be placed at the given position."""
+        # ตรวจสอบว่ากล่องมีขนาดที่ถูกต้องหรือไม่
         box_end_x = x + box.length
         box_end_y = y + box.width
         box_end_z = z + box.height

@@ -1,5 +1,6 @@
 import numpy as np
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
+from tkinter import messagebox, filedialog
 
 class Pallet:
     def __init__(self, width, length, height, frame_height=None, gap=0.2):
@@ -18,6 +19,10 @@ class Pallet:
         )
 
     def draw_pallet_frame(self, ax):
+        # messagebox.showinfo(
+        #     "Pallet Frame",
+        #     f"Width: {self.width}, Length: {self.length}, Height: {self.height}",
+        # )
         x, y, z = 0, 0, 0
         dx, dy, dz = self.width, self.length, self.height
         vertices = np.array(

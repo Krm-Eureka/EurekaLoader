@@ -23,10 +23,10 @@ def load_csvFile(fileForimportPath: str):
             sample_data = (
                 "Container,,C_Width,C_Length,C_Height\n"
                 "F15,,1060,1060,920\n"
-                "Priority,BoxTypes,Width,Length,Height,CV\n"
-                "1,TEST1,100,200,150,1\n"
-                "2,TEST2,120,220,160,2\n"
-                "3,TEST3,140,240,170,3\n"
+                "Priority,BoxTypes,Width,Length,Height,CV,Wgt\n"
+                "1,TEST1,100,200,150,1,0\n"
+                "2,TEST2,120,220,160,2,0\n"
+                "3,TEST3,140,240,170,3,0\n"
             )
             with open(fileForimportPath, "w", encoding="utf-8") as f:
                 f.write(sample_data)
@@ -53,6 +53,7 @@ def load_csvFile(fileForimportPath: str):
             return None, None
 
         try:
+            container_type = container_data[0].strip()
             container_width = int(container_data[2])
             container_length = int(container_data[3])
             container_height = int(container_data[4])
@@ -63,6 +64,7 @@ def load_csvFile(fileForimportPath: str):
             return None, None
 
         logging.debug(f"Container dimensions loaded: Width={container_width}, Length={container_length}, Height={container_height}")
+        # messagebox.showerror("Error", f"Container data: {container_data}")
 
         # ----- อ่านข้อมูล Box -----
         box_start_index = next((i for i, line in enumerate(lines) if line.strip().startswith("Priority")), None)
@@ -95,6 +97,8 @@ def load_csvFile(fileForimportPath: str):
                 height=row_dict.pop("height"),
                 sku=row_dict.pop("boxtypes"),
                 priority=int(row_dict.pop("priority")),
+                cv=str(row_dict.pop("cv")),
+                wgt=row_dict.pop("wgt"),
                 **row_dict  # ที่เหลือส่งเข้าไปเป็น extra_fields
             )
             print(f"Loaded box: {box.sku}, extras: {box.extra_fields}")
@@ -102,7 +106,7 @@ def load_csvFile(fileForimportPath: str):
 
         logging.info(f"Loaded {len(boxes_to_place)} boxes from CSV.")
 
-        return (container_width, container_length, container_height), boxes_to_place
+        return (container_type, container_width, container_length, container_height), boxes_to_place
 
     except Exception as e:
         logging.error(f"Error loading CSV: {e}")
@@ -121,16 +125,15 @@ def export_results(placed_df):
             out = row.get("Out")
             if pd.notna(out) and str(out).strip() == "1":
                 export_lines.append(
-                    f"{row['SKU']},{row['Y (mm)']},{row['X (mm)']},{row['Z (mm)']},{row['Rotate']},{row['% Cube']},{row['% Wgt']},{row['Priority']},{row.get('CV', '')},{row['Out']}"
+                    f"{row['SKU']},{row['Y (mm)']},{row['X (mm)']},{row['Z (mm)']},{row['Rotate']},{row['% Cube']},{row['Wgt']},{row['Width']},{row['Length']},{row['Height']},{row['Priority']},{row.get('CV', '')},{row['Out']}"
                 )
             else:
                 export_lines.append(
-                    f"{row['SKU']},,,,,,{row['% Wgt']},{row['Priority']},{row.get('CV', '')},{row['Out']}"
+                    f"{row['SKU']},,,,,,{row['Wgt']},{row['Width']},{row['Length']},{row['Height']},{row['Priority']},{row.get('CV', '')},{row['Out']}"
                 )
 
-        # ✅ ย้ายมาไว้ตรงนี้ (นอกลูป)
         with open(placed_file_export_path, "w", encoding="utf-8") as f:
-            f.write("SKU,Y (mm),X (mm),Z (mm),Rotate,% Cube,% Wgt,Priority,CV,Out\n")
+            f.write("SKU,Y (mm),X (mm),Z (mm),Rotate,% Cube,Wgt,Width,Length,Height,Priority,CV,Out\n")
             for line in export_lines:
                 f.write(line + "\n")
 

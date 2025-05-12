@@ -23,7 +23,7 @@ min_support_ratio = float(config.get("Container", "required_support_ratio", fall
 GAP = float(config.get("Container", "gap", fallback="5"))  # mm
 # โหลด Support Priority Levels และเพิ่มค่าต่ำสุด
 support_priority_levels = [
-    float(level.strip()) for level in config.get("Container", "support_priority_levels", fallback="1.0, 0.95, 0.9, 0.85").split(",")
+    float(level.strip()) for level in config.get("Container", "support_priority_levels", fallback=" 0.9, 0.85").split(",")
 ]
 support_priority_levels.append(min_support_ratio)
 support_priority_levels = sorted(support_priority_levels, reverse=True)  # เรียงจากมากไปน้อย
@@ -56,7 +56,7 @@ def draw_3d_boxes(container: Container, ax):
     ax.set_xlabel("X (Width mm)",fontsize=8)
     ax.set_ylabel("Y (Length mm)",fontsize=8)
     ax.set_zlabel("Z (Height mm)",fontsize=8)
-
+    ax.view_init(elev=40, azim=-130)
 # แสดงกราฟ 3D ของกล่องใน Container พร้อมสรุป
 def draw_3d_boxes_with_summary(container: Container, utilization: float, ax):
     draw_3d_boxes(container, ax)
@@ -67,8 +67,8 @@ def draw_3d_boxes_with_summary(container: Container, utilization: float, ax):
         1.05,
         f"Utilization: {utilization:.2f}%",
         transform=ax.transAxes,
-        fontsize=10,
-        color="black",
+        fontsize=15,
+        color="red" if utilization < 80 else "black",
         ha='center'
     )
     ax.text2D(
@@ -99,7 +99,7 @@ def draw_3d_boxes_with_summary(container: Container, utilization: float, ax):
 def draw_container(ax, container: Container):
     """Draw the container frame in 3D."""
     x, y, z = container.start_x, container.start_y, container.pallet_height
-    dx, dy, dz = container.length, container.width, container.height
+    dx, dy, dz =  container.width, container.length, container.height
     vertices = np.array(
         [
             [x, y, z],
@@ -217,6 +217,7 @@ def has_vertical_clearance(box: Box, placed_boxes: List[Box], container_height: 
 #         place_box_in_container(container, box)
         
 def place_box_in_container(container: Container, box: Box, optional_check: str = "op1"):
+    
     def calculate_support_ratio(box: Box, placed_boxes: List[Box], pallet_height: int) -> float:
         if box.z <= pallet_height:
             return 1.0
@@ -250,19 +251,25 @@ def place_box_in_container(container: Container, box: Box, optional_check: str =
             old_pos = (box.x, box.y, box.z)
             box.set_position(x, y, z)
             can_place, reason = container.can_place(box, x, y, z, optional_check)
-            box.set_position(*old_pos)  # รีเซตตำแหน่งหลังตรวจสอบ
+            
             print(f"Can place: {can_place}, reason: {reason}")
             if not can_place:
-                box.length, box.width = original_length, original_width  # รีเซตขนาดด้วย
+                box.set_position(*old_pos)
+                box.length, box.width = original_length, original_width
                 continue
 
             support_ratio = calculate_support_ratio(box, container.boxes, container.pallet_height)
-            if support_ratio >= min_support_ratio and support_ratio > best_support:
-                best_position = (x, y, z)
-                best_support = support_ratio
-                best_rotation = rotation
-            box.length, box.width = original_length, original_width  # รีเซตหลังเทียบเสร็จ
-            print(f"Trying pos=({x},{y},{z}) rot={rotation} | support={support_ratio:.2f}")
+            clearance_ok = has_vertical_clearance(box, container.boxes, container.height)
+            
+            if support_ratio >= min_support_ratio and clearance_ok:
+                if best_position is None or (support_ratio >= best_support and z < best_position[2]):
+                    best_position = (x, y, z)
+                    best_support = support_ratio
+                    best_rotation = rotation
+                box.length, box.width = original_length, original_width  # รีเซตหลังเทียบเสร็จ
+                print(f"Trying pos=({x},{y},{z}) rot={rotation} | support={support_ratio:.2f} | clearance={clearance_ok}")
+                if support_ratio >= min_support_ratio and clearance_ok:
+                    print(f"✅ Accepting this candidate (better or first)")
     if best_position:
         x, y, z = best_position
         if best_rotation:
@@ -318,7 +325,6 @@ def place_box_in_container(container: Container, box: Box, optional_check: str =
             "exceeds_end_z": False,
             "message": "No suitable position found"
         }
-
 
 def is_stable_platform(box: Box, placed_boxes: List[Box], pallet_height: int) -> bool:
     """

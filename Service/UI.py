@@ -1,3 +1,6 @@
+import matplotlib
+matplotlib.use("TkAgg")
+import matplotlib.pyplot as plt
 import tkinter as tk
 from tkinter import ttk 
 from threading import Thread
@@ -8,9 +11,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from Models.Pallet import Pallet
 from Models.Box import Box
 from Models.Container import Container
-import matplotlib.pyplot as plt
-import matplotlib
-
+from concurrent.futures import ThreadPoolExecutor
 import pandas as pd 
 from Service.DataHandler import load_csvFile, export_results
 from Service.config_manager import load_config
@@ -18,7 +19,8 @@ import os
 import logging
 import time
 import tkinter.simpledialog as simpledialog
-from Service.Visualization import draw_3d_boxes_with_summary, place_box_in_container, draw_box
+from Service.Visualization import draw_3d_boxes_with_summary, place_box_in_container, draw_box, draw_container
+
 
 class TextHandler(logging.Handler):
     """Custom logging handler to redirect logs to a Tkinter Text widget."""
@@ -37,6 +39,7 @@ class TextHandler(logging.Handler):
 
 class PackingApp:
     def __init__(self, master, start_base_dir):
+        self.is_pipeline_running = False
         logging.info(f"Matplotlib backend: {matplotlib.get_backend()}")
         config, _ = load_config()
         if not matplotlib.get_backend().lower().startswith("tkagg"):
@@ -87,11 +90,7 @@ class PackingApp:
         
         self.boxes_to_place = []
         self.container = None
-        P_Width = config.get("Pallet", "P_Width")
-        P_Length = config.get("Pallet", "P_Length")
-        P_Height = config.get("Pallet", "P_Height")
-        print(f"🔁 Pallet dimensions: Width={P_Width}, Length={P_Length}, Height={P_Height}")
-        self.pallet = Pallet(width=int(P_Width), length=int(P_Length), height=int(P_Height))  # ใช้ค่าจาก config.ini
+        self.pallet = None
         
         # Input Frame
         input_frame = tk.LabelFrame(master, text="Input Settings", padx=10, pady=10)  # ใช้ LabelFrame เพื่อเพิ่มหัวข้อ
@@ -142,14 +141,18 @@ class PackingApp:
 
         # ปรับขนาด Figure ให้สูงเต็มจอ
         logging.info("🧪 Creating matplotlib Figure")
-        self.fig = plt.Figure(figsize=(16, 30))
         try:
-            if self.fig is not None:
-                logging.info(f"Figure DPI: {self.fig.dpi}")
+            self.fig = plt.Figure(figsize=(16, 30))
+            dpi = getattr(self.fig, "dpi", None)
+            if dpi is not None:
+                logging.info(f"[PROD] Matplotlib Figure created with DPI: {dpi}")
             else:
-                logging.warning("⚠️ self.fig is None, skipping DPI logging.")
+                logging.warning("[PROD] DPI attribute not found. Using default fallback DPI = 100")
+                dpi = 100
         except Exception as e:
-            logging.error(f"⚠️ Failed to access .dpi from self.fig: {e}")
+            self.fig = None
+            logging.error(f"[PROD] ❌ Failed to create matplotlib Figure: {e}")
+
         self.ax = self.fig.add_subplot(111, projection="3d")
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.visualization_frame)
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
@@ -170,38 +173,92 @@ class PackingApp:
         print(f"🔁 Switched to mode: {mode}")  # Debug
         self.summary_text.insert(tk.END, f"🔁 Mode switched to {mode.upper()}\n")
         self.summary_text.see(tk.END)
+        
+    def prepare_box_fields(box):
+        def safe_int(value):
+            try:
+                f = float(value)
+                return 0 if math.isnan(f) else int(f)
+            except (ValueError, TypeError):
+                return 0
+        def safe_float(value):
+            try:
+                f = float(value)
+                return 0.0 if math.isnan(f) else f
+            except (ValueError, TypeError):
+                return 0.0
 
-    def run_full_packing_pipeline(self,  mode="op1"):
-        config, _ = load_config()
-        data_path = config.get("Paths", "data_path")
-        filepath = os.path.join(data_path, "forimport.csv")
-        try:
-# ตรวจสอบข้อมูล Container Dimention และ ฺBox To Place หากไม่ถูกต้องให้แสดง error message และหยุดการทำงาน
-            container_dimensions, self.boxes_to_place = load_csvFile(filepath)
-            if container_dimensions is None or self.boxes_to_place is None:
-                return 
+        if hasattr(box, "extra_fields"):
+            if not hasattr(box, "cv") or box.cv in [None, ""]:
+                box.cv = safe_float(box.extra_fields.get("cv"))
+            if not hasattr(box, "wgt") or box.wgt in [None, "", 0]:
+                box.wgt = safe_float(box.extra_fields.get("wgt"))
 
-            container_width, container_length, container_height = container_dimensions
-            self.container_width.set(container_width)
-            self.container_length.set(container_length)
-            self.container_height.set(container_height)
-            self.progress["value"] = 0
-            logging.info("🚀 Full auto packing pipeline completed on ENTER.")
-            if mode == "op1":
-                Thread(target=self.run_packing_op1).start()
-            elif mode == "op2":
-                Thread(target=self.run_packing_op2).start()
+
+    def run_full_packing_pipeline(self, mode="op1"):
+        if self.is_pipeline_running:
+            logging.warning("⚠️ Packing pipeline is already running.")
+            return
+        self.is_pipeline_running = True  # 🔒 Lock pipeline
+        self.load_button.config(state="disabled")  # Disable button while running
+        def _pipeline_task():
+            try:
+                config, _ = load_config()
+                data_path = config.get("Paths", "data_path")
+                filepath = os.path.join(data_path, "forimport.csv")
+
+                container_dimensions, self.boxes_to_place = load_csvFile(filepath)
+                if container_dimensions is None or self.boxes_to_place is None:
+                    return
+
+                container_type, container_width, container_length, container_height = container_dimensions
+                if str(container_type) == "1":
+                    container_type_str = "F15"
+                elif str(container_type) == "2":
+                    container_type_str = "F5"
+                else:
+                    logging.error(f"Unknown container type {container_type}")
+                    messagebox.showerror("Error", f"Unknown container type: {container_type}")
+                    return
+
+                try:
+                    P_Width = config.get("Pallet", f"{container_type_str}_Width")
+                    P_Length = config.get("Pallet", f"{container_type_str}_Length")
+                    P_Height = config.get("Pallet", f"{container_type_str}_Height")
+                except Exception as e:
+                    logging.error(f"⚠️ Cannot load Pallet size for {container_type_str}: {e}")
+                    return
+
+                self.pallet = Pallet(width=int(P_Width), length=int(P_Length), height=int(P_Height))
+                self.container_width.set(container_width)
+                self.container_length.set(container_length)
+                self.container_height.set(container_height)
+                self.progress["value"] = 0
+
+                logging.info("🚀 Full auto packing pipeline starting...")
                 
-        except Exception as e:
-            logging.error(f"Error in full packing pipeline: {e}")
-            messagebox.showerror("Error", f"Error: {e}")
+                # ✅ รันตรงนี้เลย ไม่ต้อง submit()
+                if mode == "op1":
+                    self.run_packing_op1()
+                elif mode == "op2":
+                    self.run_packing_op2()
+
+            except Exception as e:
+                logging.error(f"Error in full packing pipeline: {e}")
+                messagebox.showerror("Error", f"Error: {e}")
+            finally:
+                self.is_pipeline_running = False  # ✅ ปลดล็อกหลังทำเสร็จจริง
+                self.load_button.config(state="normal")  # เปิดใช้งานปุ่มอีกครั้ง
+
+        Thread(target=_pipeline_task).start()
+
             
     def show_step_box(self, forward=True):
         if not hasattr(self, "placed_df") or self.placed_df.empty:
             messagebox.showinfo("Info", "No placement data to display.")
             return
 
-        # ✅ แก้ตรงนี้: กรองเฉพาะกล่องที่วางสำเร็จ (Out == 0)
+        # ✅ แก้ตรงนี้: กรองเฉพาะกล่องที่วางสำเร็จ (Out == 1)
         data = self.placed_df[1:]
         data = data[data["X (mm)"].notna() & data["Y (mm)"].notna() & data["Z (mm)"].notna()].reset_index(drop=True)
 
@@ -221,13 +278,13 @@ class PackingApp:
 
         self.ax.clear()
         self.container.pallet.draw_pallet_frame(self.ax)
-
+        draw_container(self.ax, self.container)
         if self.step_index == 0:
             self.ax.set_title("No box displayed (reset state)")
         else:
             for j in range(self.step_index):
                 row = data.iloc[j]
-                x, y, z = row["X (mm)"], row["Y (mm)"], row["Z (mm)"]
+                y, x, z = row["Y (mm)"], row["X (mm)"], row["Z (mm)"]
                 sku = row["SKU"]
                 box = next(
                     (b for b in self.container.boxes if b.sku == sku and
@@ -238,15 +295,19 @@ class PackingApp:
                     draw_box(self.ax, box)
 
             last_row = data.iloc[self.step_index - 1]
-            if str(last_row["Out"]).strip() == "1":
-                self.ax.set_title(f"⚠ Box over height: SKU={last_row['SKU']}")
+            if str(last_row["Out"]).strip() == "1" and last_row["Z (mm)"] < (self.container.end_z - 100):
+                self.ax.set_title(f"Step {self.step_index} : SKU={last_row['SKU']}")
             else:
-                self.ax.set_title(f"Step {self.step_index}: SKU={last_row['SKU']}")
+                self.ax.set_title(f"⚠ Box over height : SKU={last_row['SKU']}")
 
 
-        self.ax.set_xlim([0, self.container.length])
-        self.ax.set_ylim([0, self.container.width])
+        self.ax.set_xlim([0, self.container.width])
+        self.ax.set_ylim([0, self.container.length])
         self.ax.set_zlim([0, self.container.height + self.pallet.height])
+        self.ax.set_xlabel("X (Width mm)", fontsize=8)
+        self.ax.set_ylabel("Y (Length mm)", fontsize=8)
+        self.ax.set_zlabel("Z (Height mm)", fontsize=8)
+        self.ax.view_init(elev=40, azim=-130)  # ปรับมุมมอง 3D
         self.canvas.draw()
 
 
@@ -338,6 +399,8 @@ class PackingApp:
          
         """แสดงข้อความยืนยันก่อนปิดโปรแกรม"""
         if messagebox.askokcancel("Quit", "Do you want to EXIT?"):
+            if hasattr(self, "executor"):
+                self.executor.shutdown(wait=False)
             self.master.destroy()
             
     def run_packing_op1(self):
@@ -365,8 +428,8 @@ class PackingApp:
 # ตรวจสอบว่า box_to_place มีข้อมูลหรือไม่ ในกรณีที่ยังไม่ได้โหลด CSV หรือกดปุ่ม Run Packing ก่อน Load CSV
 # ถ้า box_to_place ไม่มีข้อมูลจะแสดง error message Please load a CSV file first.
             if not self.boxes_to_place:
-                messagebox.showerror("Error", "Please load a CSV file first.")
-                logging.error("Please load a CSV file first.")
+                messagebox.showerror("Error", "Please load a CSV file first, Box to place is null.\nCheck import file.")
+                logging.error("Please load a CSV file first, Box to place is null.\nCheck import file.")
                 return
 
 # ตรวจสอบว่า Priority เรียงลำดับหรือไม่
@@ -398,16 +461,19 @@ class PackingApp:
             placed_boxes_info = []
             placed_volume = 0
             
+            # def clean_numeric_field(value: any, default: str = "0") -> str:
+            #     try:
+            #         return str(int(float(str(value).strip() or default)))
+            #     except:
+            #         return default
 # วนลูปวางกล่องใน Container
             for i, box in enumerate(self.boxes_to_place):
                 self.progress["value"] = i + 1
-                raw_cv = box.extra_fields.get("cv", "0") if hasattr(box, "extra_fields") else "0"
-                if raw_cv is None or (isinstance(raw_cv, float) and math.isnan(raw_cv)):
-                    form_conveyor = "0"
-                else:
-                    form_conveyor = str(int(float(str(raw_cv).strip() or "0")))
-
-
+                PackingApp.prepare_box_fields(box)
+                form_conveyor = box.cv
+                box_wgt = box.wgt
+                ogw = box.width
+                ogl = box.length
                 result = place_box_in_container(self.container, box, optional_check="op1")
                 # out = 1 if result["exceeds_end_z"] else (0 if result["status"] == "Confirmed" else 1)
                 logging.info(f"[OP1]📦 Result for {box.sku}: {result['status']} | R={result['rotation']} | Exceeds height? {result.get('exceeds_end_z', False)} | Reason: {result['message']}")
@@ -455,6 +521,7 @@ class PackingApp:
                 x = round(box.x, 2)
                 y = round(box.y, 2)
                 z = round(box.z, 2)
+                
                 placed_boxes_info.append([
                     box.sku, 
                     y,
@@ -462,7 +529,10 @@ class PackingApp:
                     z,
                     str(result["rotation"]),
                     round(cube_utilization, 2),
-                    0,
+                    round(box_wgt,2),
+                    str(ogw),
+                    str(ogl),
+                    str(box.height),
                     str(box.priority),
                     str(form_conveyor),
                     str(out)
@@ -492,7 +562,7 @@ class PackingApp:
 # เพิ่ม "Truck #1" เป็นแถวแรกใน placed_boxes_info
             placed_boxes_info.insert(
                 0,
-                ["Truck #1", "", "", "", "", "", "", "", "", ""]
+                ["Truck #1", "", "", "", "", "", "", "", "", "", "", "", ""]
             )
 # สร้าง DataFrame จาก placed_boxes_info
             self.placed_df = pd.DataFrame(
@@ -504,7 +574,10 @@ class PackingApp:
                     "Z (mm)",
                     "Rotate",
                     "% Cube",
-                    "% Wgt",
+                    "Wgt",
+                    "Width",
+                    "Length",
+                    "Height",
                     "Priority",
                     "CV",
                     "Out"
@@ -513,7 +586,11 @@ class PackingApp:
 
 # แสดงกราฟ 3D ของกล่องใน Container พร้อมสรุป
             self.progress["value"] = 0
-            draw_3d_boxes_with_summary(self.container, utilization, self.ax)
+            if self.fig and self.ax:
+                draw_3d_boxes_with_summary(self.container, utilization, self.ax)
+                self.canvas.draw()
+            else:
+                logging.warning("⚠️ Cannot draw visualization: Figure or Axes is None.")
             self.canvas.draw()
             # ✅ รีเซต step index
             self.step_index = 0
@@ -546,8 +623,8 @@ class PackingApp:
                 return
 
             if not self.boxes_to_place:
-                messagebox.showerror("Error", "Please load a CSV file first.")
-                logging.error("Please load a CSV file first.")
+                messagebox.showerror("Error", "Please load a CSV file first, Box to place is null.\nCheck import file.")
+                logging.error("Please load a CSV file first, Box to place is null.\nCheck import file.")
                 return
 
             priorities = [box.priority for box in self.boxes_to_place]
@@ -578,16 +655,13 @@ class PackingApp:
 
             for i, box in enumerate(self.boxes_to_place):
                 self.progress["value"] = i + 1
-                raw_cv = box.extra_fields.get("cv", "0") if hasattr(box, "extra_fields") else "0"
-                if raw_cv is None or (isinstance(raw_cv, float) and math.isnan(raw_cv)):
-                    form_conveyor = "0"
-                else:
-                    form_conveyor = str(int(float(str(raw_cv).strip() or "0")))
-
-
+                PackingApp.prepare_box_fields(box)
+                form_conveyor = box.cv
+                box_wgt = box.wgt
+                ogw = box.width
+                ogl = box.length
                 result = place_box_in_container(self.container, box, optional_check="op2")
                 logging.info(f"[OP2]📦 Result for {box.sku}: {result['status']} | R={result['rotation']} | Exceeds height? {result.get('exceeds_end_z', False)} | Reason: {result['message']}")
-
                 out = 2 if result["exceeds_end_z"] else (1 if result["status"] == "Confirmed" else 2)
                 cube_utilization = 0
                 x = ""
@@ -625,10 +699,13 @@ class PackingApp:
                     x,
                     z,
                     str(result["rotation"]),
-                    percent_cube,
-                    0,
+                    round(cube_utilization, 2),
+                    round(box_wgt,2),
+                    str(ogw),
+                    str(ogl),
+                    str(box.height),
                     str(box.priority),
-                    str(form_conveyor), # เพิ่มแก้ไขถ้า CV = "" จะได้ค่าเป็น 0
+                    str(form_conveyor),
                     str(out)
                 ])
 
@@ -656,7 +733,7 @@ class PackingApp:
 # เพิ่ม "Truck #1" เป็นแถวแรกใน placed_boxes_info
             placed_boxes_info.insert(
                 0,
-                ["Truck #1", "", "", "", "", "", "", "", "", ""]
+                ["Truck #1", "", "", "", "", "", "", "", "", "", "", "", ""]
             )
 # สร้าง DataFrame จาก placed_boxes_info
             self.placed_df = pd.DataFrame(
@@ -668,7 +745,10 @@ class PackingApp:
                     "Z (mm)",
                     "Rotate",
                     "% Cube",
-                    "% Wgt",
+                    "Wgt",
+                    "Width",
+                    "Length",
+                    "Height",
                     "Priority",
                     "CV",
                     "Out"
@@ -677,7 +757,12 @@ class PackingApp:
 
 # แสดงกราฟ 3D ของกล่องใน Container พร้อมสรุป
             self.progress["value"] = 0
-            draw_3d_boxes_with_summary(self.container, utilization, self.ax)
+            if self.fig and self.ax:
+                draw_3d_boxes_with_summary(self.container, utilization, self.ax)
+                self.canvas.draw()
+            else:
+                logging.warning("⚠️ Cannot draw visualization: Figure or Axes is None.")
+
             self.canvas.draw()
             # ✅ รีเซต step index
             self.step_index = 0
