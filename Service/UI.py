@@ -51,6 +51,7 @@ class PackingApp:
         master.bind('<Control-Left>', lambda e: self.show_step_box(forward=False))
         master.bind_all('<Control-k>', lambda e: (print("CTRL+1 triggered"), self.set_mode("op1")))
         master.bind_all('<Control-l>', lambda e: (print("CTRL+2 triggered"), self.set_mode("op2")))
+
         # โหลด base_dir จาก config.ini
         config, _ = load_config()
         self.base_dir = config.get("Paths", "base_dir")
@@ -252,7 +253,7 @@ class PackingApp:
 
         Thread(target=_pipeline_task).start()
 
-            
+           
     def show_step_box(self, forward=True):
         if not hasattr(self, "placed_df") or self.placed_df.empty:
             messagebox.showinfo("Info", "No placement data to display.")
@@ -595,6 +596,46 @@ class PackingApp:
             # ✅ รีเซต step index
             self.step_index = 0
             logging.info("[OP1] Packing process completed successfully.")
+            # ❗ ตรวจสอบกล่องล้นและ utilization
+            has_over_height = any(
+                row[-1] == "1" and float(row[3]) + float(row[9]) > self.container.end_z
+                for row in placed_boxes_info[1:]
+            )
+            low_utilization = utilization < 80.0
+
+            # เงื่อนไข 1: ทั้งคู่
+            if has_over_height and low_utilization:
+                confirm = messagebox.askyesno(
+                    "Warning: Low Utilization and Over-Height",
+                    f"⚠ Utilization is only {utilization:.2f}%.\n"
+                    f"⚠ Some boxes are placed outside the container height.\n"
+                    "Do you still want to export the result?"
+                )
+                if not confirm:
+                    self.summary_text.insert(tk.END, "🚫 Export cancelled by user due to over-height and low utilization placement.\n")
+                    return
+
+            # เงื่อนไข 2: มีแค่กล่องล้น
+            elif has_over_height:
+                confirm = messagebox.askyesno(
+                    "Warning: Boxes Over Height",
+                    "⚠ Some boxes are placed outside the container height.\nDo you still want to export the result?"
+                )
+                if not confirm:
+                    self.summary_text.insert(tk.END, "🚫 Export cancelled by user due to over-height placement.\n")
+                    return
+
+            # เงื่อนไข 3: มีแค่ utilization ต่ำ
+            elif low_utilization:
+                confirm = messagebox.askyesno(
+                    "Warning: Low Utilization",
+                    f"⚠ Utilization is only {utilization:.2f}%.\nDo you still want to export the result?"
+                )
+                if not confirm:
+                    self.summary_text.insert(tk.END, "🚫 Export cancelled by user due to low utilization.\n")
+                    return
+
+            # ✅ เงื่อนไขปลอดภัย → Export เลย
             logging.info("[OP1]💾 Starting export_results...")
             self.export_results_btn()
             # Export results automatically
@@ -767,6 +808,19 @@ class PackingApp:
             # ✅ รีเซต step index
             self.step_index = 0
             logging.info("[OP2] Packing process completed successfully.")
+            low_utilization = utilization < 80.0
+            
+            # เงื่อนไข : utilization ต่ำ
+            if low_utilization:
+                confirm = messagebox.askyesno(
+                    "Warning: Low Utilization",
+                    f"⚠ Utilization is only {utilization:.2f}%.\nDo you still want to export the result?"
+                )
+                if not confirm:
+                    self.summary_text.insert(tk.END, "🚫 Export cancelled by user due to low utilization.\n")
+                    return
+
+            # ✅ เงื่อนไขปลอดภัย → Export เลย
             logging.info("[OP2]💾 Starting export_results...")
             self.export_results_btn()
             # Export results automatically
