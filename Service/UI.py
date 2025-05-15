@@ -447,7 +447,6 @@ class PackingApp:
         cancel_btn = tk.Button(button_frame, text="Cancel", bg="salmon", width=12, command=self.on_user_cancel)
         cancel_btn.pack(side="right", padx=10)
 
-
     def on_user_confirm(self):
         if not self.confirm_buttons_active:
             return
@@ -688,7 +687,7 @@ class PackingApp:
                 low_utilization = utilization < self.less_utilization
 
                 if has_over_height and low_utilization:
-                    text = f"⚠ Utilization is only {utilization:.2f}%.\n⚠ Some boxes are placed outside the container height.\nDo you still want to export the result?"
+                    text = f"⚠ Utilization is only {utilization:.2f}%. is less than {self.less_utilization:.2f}%.\n⚠ Some boxes are placed outside the container height.\nDo you still want to export the result?"
                     self.add_confirm_buttons(text)
 
                 elif has_over_height:
@@ -696,7 +695,7 @@ class PackingApp:
                     self.add_confirm_buttons(text)
 
                 elif low_utilization:
-                    text = f"⚠ Utilization is only {utilization:.2f}%.\nDo you still want to export the result?"
+                    text = f"⚠ Utilization is only {utilization:.2f}%. is less than {self.less_utilization:.2f}%.\nDo you still want to export the result?"
                     self.add_confirm_buttons(text)
 
                 else:
@@ -880,7 +879,7 @@ class PackingApp:
                 low_utilization = utilization < self.less_utilization
                 # เงื่อนไข : utilization ต่ำกว่า 80%
                 if low_utilization:
-                    text = f"⚠ Utilization is less than {self.less_utilization:.2f}%.\nPlease Confirm if you still want to export the result?"
+                    text = f"⚠ Utilization is only {utilization:.2f}%. is less than {self.less_utilization:.2f}%.\nPlease Confirm if you still want to export the result?"
                     # confirm = messagebox.askyesno(
                     #     "Warning: Low Utilization",
                     #     text
