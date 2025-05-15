@@ -39,6 +39,7 @@ class TextHandler(logging.Handler):
 
 class PackingApp:
     def __init__(self, master, start_base_dir):
+        self.confirm_buttons_active = False
         self.is_pipeline_running = False
         logging.info(f"Matplotlib backend: {matplotlib.get_backend()}")
         config, _ = load_config()
@@ -51,6 +52,9 @@ class PackingApp:
         master.bind('<Control-Left>', lambda e: self.show_step_box(forward=False))
         master.bind_all('<Control-k>', lambda e: (print("CTRL+1 triggered"), self.set_mode("op1")))
         master.bind_all('<Control-l>', lambda e: (print("CTRL+2 triggered"), self.set_mode("op2")))
+        # Key bindings for confirm/cancel
+        master.bind("y", lambda e: self.on_user_confirm())
+        master.bind("n", lambda e: self.on_user_cancel())
         self.stop_requested = False
         master.bind("<Escape>", lambda e: self.cancel_packing())
 
@@ -58,6 +62,7 @@ class PackingApp:
         config, _ = load_config()
         self.base_dir = config.get("Paths", "base_dir")
         default_mode = config.get("AppSettings", "default_mode", fallback="op1")  # โหลดจาก config.ini
+        self.less_utilization = float(config.get("AppSettings", "utilization", fallback="80.0"))# โหลดจาก config.ini
         self.ContainerGap = float(config.get("Container", "gap", fallback="5")) # โหลดจาก config.ini
         self.mode_var = tk.StringVar(value=default_mode)  # ตั้งค่าจากไฟล์แทนการ hardcode
 
@@ -169,7 +174,7 @@ class PackingApp:
         self.summary_text.pack(fill=tk.BOTH, expand=True)
         master.bind('<Return>', lambda event: self.run_full_packing_pipeline(self.mode_var.get()))  # โหลด → วาง → แสดงผล
         self.progress = ttk.Progressbar(self.summary_frame, orient="horizontal", mode="determinate")
-        self.progress.pack(fill="x", padx=10, pady=(5, 0))
+        # self.progress.pack(fill="x", padx=10, pady=(5, 0))
         
     def set_mode(self, mode):
         self.mode_var.set(mode)
@@ -202,7 +207,6 @@ class PackingApp:
                 box.cv = safe_float(box.extra_fields.get("cv"))
             if not hasattr(box, "wgt") or box.wgt in [None, "", 0]:
                 box.wgt = safe_float(box.extra_fields.get("wgt"))
-
 
     def run_full_packing_pipeline(self, mode="op1"):
         if self.is_pipeline_running:
@@ -260,8 +264,7 @@ class PackingApp:
                 self.load_button.config(state="normal")  # เปิดใช้งานปุ่มอีกครั้ง
 
         Thread(target=_pipeline_task).start()
-
-           
+      
     def show_step_box(self, forward=True):
         if not hasattr(self, "placed_df") or self.placed_df.empty:
             messagebox.showinfo("Info", "No placement data to display.")
@@ -319,7 +322,6 @@ class PackingApp:
         self.ax.view_init(elev=40, azim=-130)  # ปรับมุมมอง 3D
         self.canvas.draw()
 
-
     def on_hover(self, event):
         event.widget.config(bg="#d0d0d0")  # Change color on hover
 
@@ -336,7 +338,6 @@ class PackingApp:
         )
         return (box_volume / container_volume) * 100 if container_volume > 0 else 0.0
 
-    
     def export_results_btn(self):
         """Export results using data_path from config.ini."""
         if hasattr(self, "placed_df") and not self.placed_df.empty:
@@ -416,9 +417,76 @@ class PackingApp:
             if hasattr(self, "executor"):
                 self.executor.shutdown(wait=False)
             self.master.destroy()
-            
+
+    def add_confirm_buttons(self, prompt_text):
+        self.confirm_buttons_active = True
+
+        # ลบเฟรมเดิมก่อน
+        for widget in self.summary_frame.winfo_children():
+            if widget.winfo_name() == "confirm_section":
+                widget.destroy()
+
+        # ✅ สร้างเฟรมใหม่สำหรับกล่องข้อความและปุ่ม (วางแนวดิ่ง)
+        confirm_section = tk.Frame(self.summary_frame, name="confirm_section")
+        confirm_section.pack(fill="x", pady=10)
+
+        # 🔺 กรอบข้อความแจ้งเตือน (wrap text ได้)
+        prompt_frame = tk.Frame(confirm_section)
+        prompt_frame.pack(fill="x")
+
+        prompt_label = tk.Label(prompt_frame, text=prompt_text, justify="center", fg="black", wraplength=300)
+        prompt_label.pack(pady=5)
+
+        # ✅ เฟรมปุ่มด้านล่าง อยู่แยกจากข้อความ
+        button_frame = tk.Frame(confirm_section)
+        button_frame.pack(pady=(5, 0))
+
+        confirm_btn = tk.Button(button_frame, text="Confirm", bg="lightgreen", width=12, command=self.on_user_confirm)
+        confirm_btn.pack(side="left", padx=10)
+
+        cancel_btn = tk.Button(button_frame, text="Cancel", bg="salmon", width=12, command=self.on_user_cancel)
+        cancel_btn.pack(side="right", padx=10)
+
+
+    def on_user_confirm(self):
+        if not self.confirm_buttons_active:
+            return
+        self.confirm_buttons_active = False
+        self.summary_text.insert(tk.END, "✅ User confirmed export.\n")
+        self.export_results_btn()
+        self.remove_confirm_buttons()
+
+    def on_user_cancel(self):
+        if not self.confirm_buttons_active:
+            return
+        self.confirm_buttons_active = False
+        self.summary_text.insert(tk.END, "🚫 User cancelled export.\n")
+        self.remove_confirm_buttons()
+
+    def remove_confirm_buttons(self):
+        for widget in self.summary_frame.winfo_children():
+            if isinstance(widget, tk.Frame):  # ลบทั้ง frame ที่ครอบปุ่ม
+                widget.destroy()
+                
+    def insert_summary_text(self, placed_count: int, failed_boxes: list, utilization: float):
+        """แสดงสรุปผลการวางกล่องและ scroll ลงบรรทัดสุดท้ายใน summary_text"""
+        self.summary_text.insert(tk.END, "\nPlacement Summary:\n")
+        self.summary_text.insert(tk.END, f" 📊  Total boxes: {len(self.boxes_to_place)}\n")
+        self.summary_text.insert(tk.END, f" ✅  Placed boxes: {placed_count}\n")
+        self.summary_text.insert(tk.END, f" ❌ Failed to place: {len(failed_boxes)}\n")
+        self.summary_text.insert(tk.END, f" 📦 Utilization: {utilization:.2f}%\n")
+        self.summary_text.insert(tk.END, f"\n")
+        self.summary_text.insert(tk.END, f"\n")
+        self.summary_text.insert(tk.END, f"\n")
+        for box_info in failed_boxes:
+            self.summary_text.insert(
+                tk.END, f"  🚫   SKU: {box_info[0]} failed due to: {box_info[-1]}\n"
+            )
+        self.summary_text.see(tk.END)
+                      
     def run_packing_op1(self):
         try:
+            self.remove_confirm_buttons()
             total_boxes = len(self.boxes_to_place)
             self.progress["maximum"] = total_boxes
             self.progress["value"] = 0
@@ -514,6 +582,7 @@ class PackingApp:
                         tk.END,
                         f"Box {i+1} (SKU: {box.sku})\nplaced at x={box.x}, y={box.y}, z={box.z} \nwith Rotation={result['rotation']} | Reason: {result['message']}\n",
                     )
+                    self.summary_text.see(tk.END)
                     logging.info(f"[OP1]✅ Confirmed placement for {box.sku} at ({box.x},{box.y},{box.z})")
                 elif result["status"] == "Failed":
                     out = 2
@@ -521,6 +590,7 @@ class PackingApp:
                         tk.END,
                         f"Box {i+1} (SKU: {box.sku}) could not be placed: {result['message']}\n",
                     )
+                    self.summary_text.see(tk.END)
                     logging.info(f"[OP1]✅ Confirmed placement for {box.sku} at ({box.x},{box.y},{box.z})")
                     logging.warning(f"[OP1]❌ Failed to place {box.sku}: {result['message']}")
                     failed_boxes.append([box.sku, result["message"]])
@@ -537,6 +607,7 @@ class PackingApp:
                         f"Position: x={box.x}, y={box.y}, z={box.z} | Rotation={result['rotation']}\n"
                         f"Reason: {result['message']}\n"
                     )
+                    self.summary_text.see(tk.END)
                     logging.warning(f"[OP1]⚠ Placed {box.sku} outside container height at ({box.x},{box.y},{box.z})")
 
                 x = round(box.x, 2)
@@ -565,19 +636,13 @@ class PackingApp:
 # คำนวน utilization ของ Container
                 utilization = round(sum(cube_utilizations_list), 2)
     # แสดงผลสรุปการวางกล่องใน Container
-                self.summary_text.insert(tk.END, "\nPlacement Summary:\n")
-                self.summary_text.insert(
-                    tk.END, f" 📊  Total boxes: {len(self.boxes_to_place)}\n"
-                )
-                self.summary_text.insert(tk.END, f" ✅  Placed boxes: {placed_count}\n")
-                self.summary_text.insert(
-                    tk.END, f" ❌ Failed to place: {len(failed_boxes)}\n"
-                )
-                self.summary_text.insert(tk.END, f" 📦 Utilization: {utilization:.2f}%\n")
+                # แสดงผลสรุปการวางกล่องใน Container
+                self.insert_summary_text(placed_count, failed_boxes, utilization)
                 for box_info in failed_boxes:
                     self.summary_text.insert(
                         tk.END, f"  🚫   SKU: {box_info[0]} failed due to: {box_info[-1]}\n"
                     )
+                self.summary_text.see(tk.END)
                 logging.info(f"[OP1]📋 Creating placed_df with {len(placed_boxes_info)} rows")
     # เพิ่ม "Truck #1" เป็นแถวแรกใน placed_boxes_info
                 placed_boxes_info.insert(
@@ -620,44 +685,27 @@ class PackingApp:
                     row[-1] == "1" and float(row[3]) + float(row[9]) > self.container.end_z
                     for row in placed_boxes_info[1:]
                 )
-                low_utilization = utilization < 80.0
+                low_utilization = utilization < self.less_utilization
 
-                # เงื่อนไข 1: ทั้งคู่
                 if has_over_height and low_utilization:
-                    confirm = messagebox.askyesno(
-                        "Warning: Low Utilization and Over-Height",
-                        f"⚠ Utilization is only {utilization:.2f}%.\n"
-                        f"⚠ Some boxes are placed outside the container height.\n"
-                        "Do you still want to export the result?"
-                    )
-                    if not confirm:
-                        self.summary_text.insert(tk.END, "🚫 Export cancelled by user due to over-height and low utilization placement.\n")
-                        return
+                    text = f"⚠ Utilization is only {utilization:.2f}%.\n⚠ Some boxes are placed outside the container height.\nDo you still want to export the result?"
+                    self.add_confirm_buttons(text)
 
-                # เงื่อนไข 2: มีแค่กล่องล้น
                 elif has_over_height:
-                    confirm = messagebox.askyesno(
-                        "Warning: Boxes Over Height",
-                        "⚠ Some boxes are placed outside the container height.\nDo you still want to export the result?"
-                    )
-                    if not confirm:
-                        self.summary_text.insert(tk.END, "🚫 Export cancelled by user due to over-height placement.\n")
-                        return
+                    text = "⚠ Some boxes are placed outside the container height.\nDo you still want to export the result?"
+                    self.add_confirm_buttons(text)
 
-                # เงื่อนไข 3: มีแค่ utilization ต่ำ
                 elif low_utilization:
-                    confirm = messagebox.askyesno(
-                        "Warning: Low Utilization",
-                        f"⚠ Utilization is only {utilization:.2f}%.\nDo you still want to export the result?"
-                    )
-                    if not confirm:
-                        self.summary_text.insert(tk.END, "🚫 Export cancelled by user due to low utilization.\n")
-                        return
+                    text = f"⚠ Utilization is only {utilization:.2f}%.\nDo you still want to export the result?"
+                    self.add_confirm_buttons(text)
 
-                # ✅ เงื่อนไขปลอดภัย → Export เลย
-                logging.info("[OP1]💾 Starting export_results...")
-                self.export_results_btn()
-            # Export results automatically
+                else:
+                    logging.info("[OP1]💾 Exporting result automatically.")
+                    self.export_results_btn()
+
+                    
+            self.progress["value"] = 0
+            self.progress.stop()
 # Exception handling 
         except Exception as e:
             messagebox.showerror("Error", f"An error occurred: {e}")
@@ -665,7 +713,9 @@ class PackingApp:
 
     def run_packing_op2(self):
         try:
+            self.remove_confirm_buttons()
             total_boxes = len(self.boxes_to_place)
+            self.progress.pack(fill="x", padx=10, pady=(5, 0))
             self.progress["maximum"] = total_boxes
             self.progress["value"] = 0
             self.master.update_idletasks()
@@ -739,7 +789,6 @@ class PackingApp:
                     placed_volume += box.get_volume()
                     percent_cube = round(cube_utilization, 2)
                     cube_utilizations_list.append(percent_cube) 
-                    print("placed_volume", placed_volume)
                     self.summary_text.insert(
                         tk.END,
                         f"Box {i+1} (SKU: {box.sku})\nplaced at x={box.x}, y={box.y}, z={box.z} \nwith Rotation={result['rotation']} | Reason: {result['message']}\n",
@@ -758,6 +807,7 @@ class PackingApp:
                     logging.info(f"[OP2]✅ Confirmed placement for {box.sku} at ({box.x},{box.y},{box.z})")
                     logging.warning(f"[OP2]❌ Failed to place {box.sku}: {result['message']}")
                     failed_boxes.append([box.sku, result["message"]])
+                self.summary_text.see(tk.END)
                 
                 placed_boxes_info.append([
                     box.sku, 
@@ -781,20 +831,13 @@ class PackingApp:
             else:
 # คำนวน utilization ของ Container
                 utilization = round(sum(cube_utilizations_list), 2)
-    # แสดงผลสรุปการวางกล่องใน Container
-                self.summary_text.insert(tk.END, "\nPlacement Summary:\n")
-                self.summary_text.insert(
-                    tk.END, f" 📊  Total boxes: {len(self.boxes_to_place)}\n"
-                )
-                self.summary_text.insert(tk.END, f" ✅  Placed boxes: {placed_count}\n")
-                self.summary_text.insert(
-                    tk.END, f" ❌ Failed to place: {len(failed_boxes)}\n"
-                )
-                self.summary_text.insert(tk.END, f" 📦 Utilization: {utilization:.2f}%\n")
+# แสดงผลสรุปการวางกล่องใน Container
+                self.insert_summary_text(placed_count, failed_boxes, utilization)
                 for box_info in failed_boxes:
                     self.summary_text.insert(
                         tk.END, f"  🚫   SKU: {box_info[0]} failed due to: {box_info[-1]}\n"
                     )
+                self.summary_text.see(tk.END)
                 logging.info(f"[OP2]📋 Creating placed_df with {len(placed_boxes_info)} rows")
     # เพิ่ม "Truck #1" เป็นแถวแรกใน placed_boxes_info
                 placed_boxes_info.insert(
@@ -822,8 +865,8 @@ class PackingApp:
                 )
 
 # แสดงกราฟ 3D ของกล่องใน Container พร้อมสรุป
-            
                 self.progress["value"] = 0
+                self.progress.pack_forget()
                 if self.fig and self.ax:
                     draw_3d_boxes_with_summary(self.container, utilization, self.ax)
                     self.canvas.draw()
@@ -834,23 +877,30 @@ class PackingApp:
                 # ✅ รีเซต step index
                 self.step_index = 0
                 logging.info("[OP2] Packing process completed successfully.")
-                low_utilization = utilization < 80.0
-                
-                # เงื่อนไข : utilization ต่ำ
+                low_utilization = utilization < self.less_utilization
+                # เงื่อนไข : utilization ต่ำกว่า 80%
                 if low_utilization:
-                    confirm = messagebox.askyesno(
-                        "Warning: Low Utilization",
-                        f"⚠ Utilization is only {utilization:.2f}%.\nDo you still want to export the result?"
-                    )
-                    if not confirm:
-                        self.summary_text.insert(tk.END, "🚫 Export cancelled by user due to low utilization.\n")
-                        return
-
-                # ✅ เงื่อนไขปลอดภัย → Export เลย
-                logging.info("[OP2]💾 Starting export_results...")
-                self.export_results_btn()
+                    text = f"⚠ Utilization is less than {self.less_utilization:.2f}%.\nPlease Confirm if you still want to export the result?"
+                    # confirm = messagebox.askyesno(
+                    #     "Warning: Low Utilization",
+                    #     text
+                    # )
+                    self.add_confirm_buttons(text)
+                    self.summary_text.see(tk.END)
+                elif not low_utilization:
+                    # ✅ เงื่อนไขปลอดภัย → Export เลย
+                    logging.info("[OP2]💾 Starting export_results...")
+                    self.export_results_btn()
+                # # ✅ เงื่อนไขปลอดภัย → Export เลย
+                # logging.info("[OP2]💾 Starting export_results...")
+                # self.export_results_btn()
             # Export results automatically
+            self.progress["value"] = 0
+            self.progress.stop()
 # Exception handling 
         except Exception as e:
             messagebox.showerror("Error", f"An error occurred: {e}")
             logging.error(f"An error occurred: {e}")
+            
+            
+            
