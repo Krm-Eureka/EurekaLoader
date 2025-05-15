@@ -14,12 +14,11 @@ import logging
 config = configparser.ConfigParser()
 config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config.ini")
 config.read(config_path)
-# โหลดค่า Support Priority Levels จาก config.ini
-config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config.ini")
-config.read(config_path)
 
 # โหลดค่าต่ำสุดของ Support Ratio
 min_support_ratio = float(config.get("Container", "required_support_ratio", fallback="0.8"))
+less_utilization = float(config.get("AppSettings", "utilization", fallback="80.0"))
+
 GAP = float(config.get("Container", "gap", fallback="5"))  # mm
 # โหลด Support Priority Levels และเพิ่มค่าต่ำสุด
 support_priority_levels = [
@@ -68,7 +67,7 @@ def draw_3d_boxes_with_summary(container: Container, utilization: float, ax):
         f"Utilization: {utilization:.2f}%",
         transform=ax.transAxes,
         fontsize=15,
-        color="red" if utilization < 80 else "black",
+        color="red" if utilization < less_utilization else "black",
         ha='center'
     )
     ax.text2D(

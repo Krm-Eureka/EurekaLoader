@@ -54,7 +54,7 @@ class PackingApp:
         master.bind_all('<Control-l>', lambda e: (print("CTRL+2 triggered"), self.set_mode("op2")))
         # Key bindings for confirm/cancel
         master.bind("y", lambda e: self.on_user_confirm())
-        master.bind("n", lambda e: self.on_user_cancel())
+        # master.bind("n", lambda e: self.on_user_cancel())
         self.stop_requested = False
         master.bind("<Escape>", lambda e: self.cancel_packing())
 
@@ -444,8 +444,8 @@ class PackingApp:
         confirm_btn = tk.Button(button_frame, text="Confirm", bg="lightgreen", width=12, command=self.on_user_confirm)
         confirm_btn.pack(side="left", padx=10)
 
-        cancel_btn = tk.Button(button_frame, text="Cancel", bg="salmon", width=12, command=self.on_user_cancel)
-        cancel_btn.pack(side="right", padx=10)
+        # cancel_btn = tk.Button(button_frame, text="Cancel", bg="salmon", width=12, command=self.on_user_cancel)
+        # cancel_btn.pack(side="right", padx=10)
 
     def on_user_confirm(self):
         if not self.confirm_buttons_active:
@@ -482,13 +482,206 @@ class PackingApp:
                 tk.END, f"  🚫   SKU: {box_info[0]} failed due to: {box_info[-1]}\n"
             )
         self.summary_text.see(tk.END)
-                      
+  
     def run_packing_op1(self):
+        try:
+            self.remove_confirm_buttons()
+            total_boxes = len(self.boxes_to_place)
+            self.progress.pack(fill="x", padx=10, pady=(5, 0))
+            self.progress["maximum"] = total_boxes
+            self.progress["value"] = 0
+            self.master.update_idletasks()
+
+            try:
+                container_length = int(self.container_length.get())
+                container_width = int(self.container_width.get())
+                container_height = int(self.container_height.get())
+            except ValueError:
+                messagebox.showerror("Error", "Container dimensions must be valid numbers.")
+                return
+
+            if container_length <= 0 or container_width <= 0 or container_height <= 0:
+                messagebox.showerror("Error", "Container dimensions must be positive numbers and greater than 0.")
+                return
+
+            if not self.boxes_to_place:
+                messagebox.showerror("Error", "Please load a CSV file first, Box to place is null.\nCheck import file.")
+                logging.error("Please load a CSV file first, Box to place is null.\nCheck import file.")
+                return
+
+            priorities = [box.priority for box in self.boxes_to_place]
+            if priorities != sorted(priorities):
+                self.summary_text.insert(
+                    tk.END,
+                    "⚠ Warning: Priorities are not sequential. Proceeding with the given priorities.\n"
+                )
+                logging.warning("Priorities are not sequential. Proceeding with the given priorities.")
+
+            self.boxes_to_place.sort(key=lambda box: box.priority)
+
+            self.container = Container(
+                container_length,
+                container_width,
+                container_height,
+                "blue",
+                self.pallet,
+            )
+            start_time = time.time()
+            self.summary_text.delete("1.0", tk.END)
+            self.summary_text.insert(tk.END, "Process : Starting box placement (OP2 mode).\n")
+
+            placed_boxes_info = []
+            failed_boxes = []
+            cube_utilizations_list = []
+            placed_volume = 0
+            placed_count = 0
+            self.stop_requested = False
+            for i, box in enumerate(self.boxes_to_place):
+                if self.stop_requested:
+                    logging.warning("🚫 Packing stopped by user (ESC).")
+                    break
+                self.progress["value"] = i + 1
+                PackingApp.prepare_box_fields(box)
+                form_conveyor = box.cv
+                box_wgt = box.wgt
+                ogw = box.width
+                ogl = box.length
+                result = place_box_in_container(self.container, box, optional_check="op2")
+                logging.info(f"[OP2]📦 Result for {box.sku}: {result['status']} | R={result['rotation']} | Exceeds height? {result.get('exceeds_end_z', False)} | Reason: {result['message']}")
+                out = 2 if result["exceeds_end_z"] else (1 if result["status"] == "Confirmed" else 2)
+                cube_utilization = 0
+                x = ""
+                y = ""
+                z = ""
+                percent_cube = 0
+                print(result["status"])
+                if result["status"] == "Confirmed":
+                    cube_utilization = self.calculate_utilization(box, self.container) if result["status"] == "Confirmed" else 0
+                    placed_count += 1
+                    placed_volume += box.get_volume()
+                    percent_cube = round(cube_utilization, 2)
+                    cube_utilizations_list.append(percent_cube) 
+                    self.summary_text.insert(
+                        tk.END,
+                        f"Box {i+1} (SKU: {box.sku})\nplaced at x={box.x}, y={box.y}, z={box.z} \nwith Rotation={result['rotation']} | Reason: {result['message']}\n",
+                    )
+                    
+                    x = round(box.x, 2)
+                    y = round(box.y, 2)
+                    z = round(box.z, 2)
+                    logging.info(f"[OP2]✅ Confirmed placement for {box.sku} at ({box.x},{box.y},{box.z})")
+                elif result["status"] == "Failed":
+                    logging.info(f"[OP2]📦 Result for {box.sku}: {result['status']} | R={result['rotation']} | Exceeds height? {result.get('exceeds_end_z', False)} | Reason: {result['message']}")
+                    self.summary_text.insert(
+                        tk.END,
+                        f"Box {i+1} (SKU: {box.sku}) could not be placed: {result['message']}\n",
+                    )
+                    logging.info(f"[OP2]✅ Confirmed placement for {box.sku} at ({box.x},{box.y},{box.z})")
+                    logging.warning(f"[OP2]❌ Failed to place {box.sku}: {result['message']}")
+                    failed_boxes.append([box.sku, result["message"]])
+                self.summary_text.see(tk.END)
+                
+                placed_boxes_info.append([
+                    box.sku, 
+                    y,
+                    x,
+                    z,
+                    str(result["rotation"]),
+                    percent_cube,
+                    round(box_wgt,2),
+                    str(ogw),
+                    str(ogl),
+                    str(box.height),
+                    str(box.priority),
+                    str(form_conveyor),
+                    str(out)
+                ])
+
+            end_time = time.time()
+            if self.stop_requested :
+                return
+            else:
+# คำนวน utilization ของ Container
+                utilization = round(sum(cube_utilizations_list), 2)
+# แสดงผลสรุปการวางกล่องใน Container
+                self.insert_summary_text(placed_count, failed_boxes, utilization)
+                for box_info in failed_boxes:
+                    self.summary_text.insert(
+                        tk.END, f"  🚫   SKU: {box_info[0]} failed due to: {box_info[-1]}\n"
+                    )
+                self.summary_text.see(tk.END)
+                logging.info(f"[OP2]📋 Creating placed_df with {len(placed_boxes_info)} rows")
+    # เพิ่ม "Truck #1" เป็นแถวแรกใน placed_boxes_info
+                placed_boxes_info.insert(
+                    0,
+                    ["Truck #1", "", "", "", "", "", "", "", "", "", "", "", ""]
+                )
+    # สร้าง DataFrame จาก placed_boxes_info
+                self.placed_df = pd.DataFrame(
+                    placed_boxes_info,
+                    columns=[
+                        "SKU",
+                        "Y (mm)",
+                        "X (mm)",
+                        "Z (mm)",
+                        "Rotate",
+                        "% Cube",
+                        "Wgt",
+                        "Width",
+                        "Length",
+                        "Height",
+                        "Priority",
+                        "CV",
+                        "Out"
+                    ],
+                )
+
+# แสดงกราฟ 3D ของกล่องใน Container พร้อมสรุป
+                self.progress.pack_forget()
+                if self.fig and self.ax:
+                    draw_3d_boxes_with_summary(self.container, utilization, self.ax)
+                    self.canvas.draw()
+                else:
+                    logging.warning("⚠️ Cannot draw visualization: Figure or Axes is None.")
+
+                self.canvas.draw()
+                # ✅ รีเซต step index
+                self.step_index = 0
+                logging.info("[OP2] Packing process completed successfully.")
+                low_utilization = utilization < self.less_utilization
+                # เงื่อนไข : utilization ต่ำกว่า 80%
+                if low_utilization:
+                    text = f"⚠ Utilization is only {utilization:.2f}%. is less than {self.less_utilization:.2f}%.\nPlease Confirm if you still want to export the result?"
+                    # confirm = messagebox.askyesno(
+                    #     "Warning: Low Utilization",
+                    #     text
+                    # )
+                    self.add_confirm_buttons(text)
+                    self.summary_text.see(tk.END)
+                elif not low_utilization:
+                    # ✅ เงื่อนไขปลอดภัย → Export เลย
+                    logging.info("[OP2]💾 Starting export_results...")
+                    text = f"Utilization is {utilization:.2f}%.\nConfirm to export the result?"
+                    self.add_confirm_buttons(text)
+                # # ✅ เงื่อนไขปลอดภัย → Export เลย
+                # logging.info("[OP2]💾 Starting export_results...")
+                # self.export_results_btn()
+            # Export results automatically
+            self.progress["value"] = 0
+            self.progress.stop()
+# Exception handling 
+        except Exception as e:
+            messagebox.showerror("Error", f"An error occurred: {e}")
+            logging.error(f"An error occurred: {e}")
+                                
+    def run_packing_op2(self):
         try:
             self.remove_confirm_buttons()
             total_boxes = len(self.boxes_to_place)
             self.progress["maximum"] = total_boxes
             self.progress["value"] = 0
+            self.progress.pack(fill="x", padx=10, pady=(5, 0))
+
             self.master.update_idletasks()
 # แปลงค่าจาก str เป็น int และตรวจสอบความถูกต้อง
 # ถ้าไม่มี Container Dimension จะแสดง error message Container dimensions must be valid numbers.
@@ -670,6 +863,7 @@ class PackingApp:
 
 # แสดงกราฟ 3D ของกล่องใน Container พร้อมสรุป
                 self.progress["value"] = 0
+                self.progress.pack_forget()
                 if self.fig and self.ax:
                     draw_3d_boxes_with_summary(self.container, utilization, self.ax)
                     self.canvas.draw()
@@ -691,7 +885,7 @@ class PackingApp:
                     self.add_confirm_buttons(text)
 
                 elif has_over_height:
-                    text = "⚠ Some boxes are placed outside the container height.\nDo you still want to export the result?"
+                    text = "⚠ Some boxes are placed outside the container height.\nConfirm to export the result?"
                     self.add_confirm_buttons(text)
 
                 elif low_utilization:
@@ -699,207 +893,15 @@ class PackingApp:
                     self.add_confirm_buttons(text)
 
                 else:
-                    logging.info("[OP1]💾 Exporting result automatically.")
-                    self.export_results_btn()
-
-                    
+                    # logging.info("[OP1]💾 Exporting result automatically.")
+                    text = f"Utilization is {utilization:.2f}%.\nConfirm to export the result?"
+                    self.add_confirm_buttons(text)
+                    # self.export_results_btn()
             self.progress["value"] = 0
+            self.summary_text.insert(tk.END, "✅ Packing process completed successfully.\n")
             self.progress.stop()
 # Exception handling 
         except Exception as e:
             messagebox.showerror("Error", f"An error occurred: {e}")
             logging.error(f"[OP1] An error occurred: {e}")
 
-    def run_packing_op2(self):
-        try:
-            self.remove_confirm_buttons()
-            total_boxes = len(self.boxes_to_place)
-            self.progress.pack(fill="x", padx=10, pady=(5, 0))
-            self.progress["maximum"] = total_boxes
-            self.progress["value"] = 0
-            self.master.update_idletasks()
-
-            try:
-                container_length = int(self.container_length.get())
-                container_width = int(self.container_width.get())
-                container_height = int(self.container_height.get())
-            except ValueError:
-                messagebox.showerror("Error", "Container dimensions must be valid numbers.")
-                return
-
-            if container_length <= 0 or container_width <= 0 or container_height <= 0:
-                messagebox.showerror("Error", "Container dimensions must be positive numbers and greater than 0.")
-                return
-
-            if not self.boxes_to_place:
-                messagebox.showerror("Error", "Please load a CSV file first, Box to place is null.\nCheck import file.")
-                logging.error("Please load a CSV file first, Box to place is null.\nCheck import file.")
-                return
-
-            priorities = [box.priority for box in self.boxes_to_place]
-            if priorities != sorted(priorities):
-                self.summary_text.insert(
-                    tk.END,
-                    "⚠ Warning: Priorities are not sequential. Proceeding with the given priorities.\n"
-                )
-                logging.warning("Priorities are not sequential. Proceeding with the given priorities.")
-
-            self.boxes_to_place.sort(key=lambda box: box.priority)
-
-            self.container = Container(
-                container_length,
-                container_width,
-                container_height,
-                "blue",
-                self.pallet,
-            )
-            start_time = time.time()
-            self.summary_text.delete("1.0", tk.END)
-            self.summary_text.insert(tk.END, "Process : Starting box placement (OP2 mode).\n")
-
-            placed_boxes_info = []
-            failed_boxes = []
-            cube_utilizations_list = []
-            placed_volume = 0
-            placed_count = 0
-            self.stop_requested = False
-            for i, box in enumerate(self.boxes_to_place):
-                if self.stop_requested:
-                    logging.warning("🚫 Packing stopped by user (ESC).")
-                    break
-                self.progress["value"] = i + 1
-                PackingApp.prepare_box_fields(box)
-                form_conveyor = box.cv
-                box_wgt = box.wgt
-                ogw = box.width
-                ogl = box.length
-                result = place_box_in_container(self.container, box, optional_check="op2")
-                logging.info(f"[OP2]📦 Result for {box.sku}: {result['status']} | R={result['rotation']} | Exceeds height? {result.get('exceeds_end_z', False)} | Reason: {result['message']}")
-                out = 2 if result["exceeds_end_z"] else (1 if result["status"] == "Confirmed" else 2)
-                cube_utilization = 0
-                x = ""
-                y = ""
-                z = ""
-                percent_cube = 0
-                print(result["status"])
-                if result["status"] == "Confirmed":
-                    cube_utilization = self.calculate_utilization(box, self.container) if result["status"] == "Confirmed" else 0
-                    placed_count += 1
-                    placed_volume += box.get_volume()
-                    percent_cube = round(cube_utilization, 2)
-                    cube_utilizations_list.append(percent_cube) 
-                    self.summary_text.insert(
-                        tk.END,
-                        f"Box {i+1} (SKU: {box.sku})\nplaced at x={box.x}, y={box.y}, z={box.z} \nwith Rotation={result['rotation']} | Reason: {result['message']}\n",
-                    )
-                    
-                    x = round(box.x, 2)
-                    y = round(box.y, 2)
-                    z = round(box.z, 2)
-                    logging.info(f"[OP2]✅ Confirmed placement for {box.sku} at ({box.x},{box.y},{box.z})")
-                elif result["status"] == "Failed":
-                    logging.info(f"[OP2]📦 Result for {box.sku}: {result['status']} | R={result['rotation']} | Exceeds height? {result.get('exceeds_end_z', False)} | Reason: {result['message']}")
-                    self.summary_text.insert(
-                        tk.END,
-                        f"Box {i+1} (SKU: {box.sku}) could not be placed: {result['message']}\n",
-                    )
-                    logging.info(f"[OP2]✅ Confirmed placement for {box.sku} at ({box.x},{box.y},{box.z})")
-                    logging.warning(f"[OP2]❌ Failed to place {box.sku}: {result['message']}")
-                    failed_boxes.append([box.sku, result["message"]])
-                self.summary_text.see(tk.END)
-                
-                placed_boxes_info.append([
-                    box.sku, 
-                    y,
-                    x,
-                    z,
-                    str(result["rotation"]),
-                    percent_cube,
-                    round(box_wgt,2),
-                    str(ogw),
-                    str(ogl),
-                    str(box.height),
-                    str(box.priority),
-                    str(form_conveyor),
-                    str(out)
-                ])
-
-            end_time = time.time()
-            if self.stop_requested :
-                return
-            else:
-# คำนวน utilization ของ Container
-                utilization = round(sum(cube_utilizations_list), 2)
-# แสดงผลสรุปการวางกล่องใน Container
-                self.insert_summary_text(placed_count, failed_boxes, utilization)
-                for box_info in failed_boxes:
-                    self.summary_text.insert(
-                        tk.END, f"  🚫   SKU: {box_info[0]} failed due to: {box_info[-1]}\n"
-                    )
-                self.summary_text.see(tk.END)
-                logging.info(f"[OP2]📋 Creating placed_df with {len(placed_boxes_info)} rows")
-    # เพิ่ม "Truck #1" เป็นแถวแรกใน placed_boxes_info
-                placed_boxes_info.insert(
-                    0,
-                    ["Truck #1", "", "", "", "", "", "", "", "", "", "", "", ""]
-                )
-    # สร้าง DataFrame จาก placed_boxes_info
-                self.placed_df = pd.DataFrame(
-                    placed_boxes_info,
-                    columns=[
-                        "SKU",
-                        "Y (mm)",
-                        "X (mm)",
-                        "Z (mm)",
-                        "Rotate",
-                        "% Cube",
-                        "Wgt",
-                        "Width",
-                        "Length",
-                        "Height",
-                        "Priority",
-                        "CV",
-                        "Out"
-                    ],
-                )
-
-# แสดงกราฟ 3D ของกล่องใน Container พร้อมสรุป
-                self.progress["value"] = 0
-                self.progress.pack_forget()
-                if self.fig and self.ax:
-                    draw_3d_boxes_with_summary(self.container, utilization, self.ax)
-                    self.canvas.draw()
-                else:
-                    logging.warning("⚠️ Cannot draw visualization: Figure or Axes is None.")
-
-                self.canvas.draw()
-                # ✅ รีเซต step index
-                self.step_index = 0
-                logging.info("[OP2] Packing process completed successfully.")
-                low_utilization = utilization < self.less_utilization
-                # เงื่อนไข : utilization ต่ำกว่า 80%
-                if low_utilization:
-                    text = f"⚠ Utilization is only {utilization:.2f}%. is less than {self.less_utilization:.2f}%.\nPlease Confirm if you still want to export the result?"
-                    # confirm = messagebox.askyesno(
-                    #     "Warning: Low Utilization",
-                    #     text
-                    # )
-                    self.add_confirm_buttons(text)
-                    self.summary_text.see(tk.END)
-                elif not low_utilization:
-                    # ✅ เงื่อนไขปลอดภัย → Export เลย
-                    logging.info("[OP2]💾 Starting export_results...")
-                    self.export_results_btn()
-                # # ✅ เงื่อนไขปลอดภัย → Export เลย
-                # logging.info("[OP2]💾 Starting export_results...")
-                # self.export_results_btn()
-            # Export results automatically
-            self.progress["value"] = 0
-            self.progress.stop()
-# Exception handling 
-        except Exception as e:
-            messagebox.showerror("Error", f"An error occurred: {e}")
-            logging.error(f"An error occurred: {e}")
-            
-            
-            
