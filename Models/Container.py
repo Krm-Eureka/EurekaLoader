@@ -14,7 +14,7 @@ GAP = float(config.get("Container", "gap", fallback=5))  # ใช้ค่า fa
 TopSafe = float(config.get("Container", "safeTop", fallback=20))
 
 class Container:
-    def __init__(self, length: int, width: int, height: int, color: str, pallet: Pallet):
+    def __init__(self, length: int, width: int, height: int, color: str, pallet: Pallet, ContainerType: str):
         self.length = length
         self.width = width
         self.height = height
@@ -28,9 +28,10 @@ class Container:
         self.end_y = self.start_y + self.length
         self.total_height = self.height + pallet.height
         self.end_z = self.total_height - TopSafe
+        self.Container_Gap = GAP + 20 if ContainerType == "2" else GAP
         # self.can_over_end_z
 
-    def can_place(self, box: Box, x: int, y: int, z: int, optional_check: str = "op1") -> Tuple[bool, str]:
+    def can_place(self, box: Box, x: int, y: int, z: int, optional_check: str = "op2") -> Tuple[bool, str]:
         """Check if a box can be placed at the given position."""
         # ตรวจสอบว่ากล่องมีขนาดที่ถูกต้องหรือไม่
         box_end_x = x + box.length
@@ -39,20 +40,20 @@ class Container:
 
     # ตรวจสอบขอบเขตพื้นฐาน
         out_of_bounds = (
-            x < self.start_x + GAP or
-            y < self.start_y + GAP or
+            x < self.start_x + self.Container_Gap or
+            y < self.start_y + self.Container_Gap or
             z < 0 or
-            x + box.length > self.end_x - GAP or
-            y + box.width > self.end_y - GAP
+            x + box.length > self.end_x - self.Container_Gap or
+            y + box.width > self.end_y - self.Container_Gap
             )
         # ถ้าเป็น op2 → เพิ่มตรวจความสูงด้วย
         if optional_check == "op2":
             out_of_bounds = (
-                x < self.start_x + GAP or
-                y < self.start_y + GAP or
+                x < self.start_x + self.Container_Gap or
+                y < self.start_y + self.Container_Gap or
                 z < 0 or
-                x + box.length > self.end_x - GAP or
-                y + box.width > self.end_y - GAP or
+                x + box.length > self.end_x - self.Container_Gap or
+                y + box.width > self.end_y - self.Container_Gap or
                 box_end_z > self.end_z
             )
             if out_of_bounds:
@@ -95,8 +96,8 @@ class Container:
         if not self.boxes:
             return [
                 (
-                    int(self.start_x) + int(GAP),
-                    int(self.start_y) + int(GAP),
+                    int(self.start_x) + int(self.Container_Gap),
+                    int(self.start_y) + int(self.Container_Gap),
                     self.pallet_height,
                 )
             ]
@@ -119,9 +120,9 @@ class Container:
             # ใช้ตำแหน่งมุมแบบหัก GAP เพื่อหลีกเลี่ยงเลยขอบ
             corners = [
                 (self.start_x, self.start_y),
-                (self.end_x - GAP, self.start_y),
-                (self.start_x, self.end_y - GAP),
-                (self.end_x - GAP, self.end_y - GAP),
+                (self.end_x - self.Container_Gap, self.start_y),
+                (self.start_x, self.end_y - self.Container_Gap),
+                (self.end_x - self.Container_Gap, self.end_y - self.Container_Gap),
             ]
             return min(((x - cx) ** 2 + (y - cy) ** 2) ** 0.5 for cx, cy in corners)
 

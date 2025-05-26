@@ -55,7 +55,7 @@ def draw_3d_boxes(container: Container, ax):
     ax.set_xlabel("X (Width mm)",fontsize=8)
     ax.set_ylabel("Y (Length mm)",fontsize=8)
     ax.set_zlabel("Z (Height mm)",fontsize=8)
-    ax.view_init(elev=40, azim=-130)
+    ax.view_init(elev=30, azim=-255)  # ปรับมุมมองให้เหมาะสม
 # แสดงกราฟ 3D ของกล่องใน Container พร้อมสรุป
 def draw_3d_boxes_with_summary(container: Container, utilization: float, ax):
     draw_3d_boxes(container, ax)
@@ -215,7 +215,7 @@ def has_vertical_clearance(box: Box, placed_boxes: List[Box], container_height: 
 #     for box in sorted_boxes:
 #         place_box_in_container(container, box)
         
-def place_box_in_container(container: Container, box: Box, optional_check: str = "op1"):
+def place_box_in_container(container: Container, box: Box, optional_check: str = "op2"):
     
     def calculate_support_ratio(box: Box, placed_boxes: List[Box], pallet_height: int) -> float:
         if box.z <= pallet_height:
