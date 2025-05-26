@@ -500,8 +500,14 @@ class PackingApp:
             if container_length <= 0 or container_width <= 0 or container_height <= 0:
                 messagebox.showerror("Error", "Container dimensions must be positive numbers and greater than 0.")
                 return
+            
             if not self.boxes_to_place:
-                messagebox.showerror("Error", "Please load a CSV file first, Box to place is null.\nCheck import file.")
+                # messagebox.showinfo("info", self.boxes_to_place)
+                # messagebox.showerror("Error", "Please load a CSV file first, Box to place is null.\nCheck import file.")
+                self.summary_text.insert(
+                    tk.END,
+                    "⚠ Warning: Please load a CSV file first, Box to place is null.\n: ⚠ Check import file. ⚠ :\n"
+                )
                 logging.error("Please load a CSV file first, Box to place is null.\nCheck import file.")
                 return
             priorities = [box.priority for box in self.boxes_to_place]

@@ -82,6 +82,9 @@ def load_csvFile(fileForimportPath: str):
         logging.debug(f"DataFrame loaded: \n{df.to_string()}")
         df.columns = [col.lower() for col in df.columns]  # เปลี่ยนชื่อคอลัมน์เป็นตัวพิมพ์เล็ก
         required_columns = ["priority", "boxtypes", "width", "length", "height"]
+        if df.empty:
+            logging.warning("Box data is empty. No boxes to load.")
+            return (container_type, container_width, container_length, container_height), []
         if not all(col in df.columns for col in required_columns):
             missing_columns = [col for col in required_columns if col not in df.columns]
             logging.error(f"CSV file missing required columns: {missing_columns}")
