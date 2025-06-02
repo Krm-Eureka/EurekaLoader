@@ -121,7 +121,7 @@ def draw_container(ax, container: Container):
     ax.add_collection3d(
         Poly3DCollection(
             vertices[faces],
-            facecolors="blue",
+            facecolors=container.color,
             linestyle="dashed",
             linewidths=0.3,
             edgecolors="black",

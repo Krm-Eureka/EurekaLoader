@@ -12,13 +12,14 @@ config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config.i
 config.read(config_path)
 GAP = float(config.get("Container", "gap", fallback=5))  # ใช้ค่า fallback เป็น 5 หากไม่มีใน config.ini
 TopSafe = float(config.get("Container", "safeTop", fallback=20))
+GapForF5 = float(config.get("Container", "F5", fallback=20))
 
 class Container:
     def __init__(self, length: int, width: int, height: int, color: str, pallet: Pallet, ContainerType: str):
         self.length = length
         self.width = width
         self.height = height
-        self.color = color
+        self.color = color if ContainerType == "1" else "brown"  # ถ้าเป็น F5 ให้ใช้สีขาว
         self.pallet = pallet  
         self.pallet_height = pallet.height
         self.boxes = []
@@ -28,7 +29,7 @@ class Container:
         self.end_y = self.start_y + self.length
         self.total_height = self.height + pallet.height
         self.end_z = self.total_height - TopSafe
-        self.Container_Gap = GAP + 20 if ContainerType == "2" else GAP
+        self.Container_Gap = GAP if ContainerType == "1" else GAP + GapForF5
         # self.can_over_end_z
 
     def can_place(self, box: Box, x: int, y: int, z: int, optional_check: str = "op2") -> Tuple[bool, str]:
