@@ -153,15 +153,15 @@ def draw_box(ax, box: Box):
         [2, 3, 7, 6],
         [3, 0, 4, 7],
     ]
-
-    # ดึงค่าสีจาก config.ini
-    color = config.get("BoxColors", box.sku, fallback="gray")  # ใช้สีเทาเป็นค่าเริ่มต้นหากไม่มีใน config.ini
-
+    # ดึงค่าสีจาก config.ini ถ้า is_collided ให้ใช้สีแดง
+    color = "red" if getattr(box, "is_collided", False) else config.get("BoxColors", box.sku, fallback="gray")
     for f in faces:
         poly = Poly3DCollection(
             [vertices[f]], alpha=1.0, facecolor=color, edgecolor="black", linewidth=1
         )
         ax.add_collection3d(poly)
+    # แสดง label SKU
+    ax.text(x + dx / 2, y + dy / 2, z + dz / 2, box.sku, ha='center', va='center', fontsize=8, color='black')
 
 def has_vertical_clearance(box: Box, placed_boxes: List[Box], container_height: int) -> bool:
     """
@@ -200,7 +200,7 @@ def has_vertical_clearance(box: Box, placed_boxes: List[Box], container_height: 
 #     total_area = box.length * box.width
 
 #     for b in placed_boxes:
-#         if abs(b.z + b.height - box.z) < 1e-6:  # ตรวจสอบว่ากล่องอยู่ด้านล่าง
+#         if abs(b.z + b.height - box.z) < 1e-6: # ตรวจสอบว่ากล่องอยู่ด้านล่าง
 #             overlap_x = max(0, min(box.x + box.length, b.x + b.length) - max(box.x, b.x))
 #             overlap_y = max(0, min(box.y + box.width, b.y + b.width) - max(box.y, b.y))
 #             support_area += overlap_x * overlap_y
@@ -281,7 +281,7 @@ def place_box_in_container(container: Container, box: Box, optional_check: str =
         if not exceeds:
             return {
                 "status": "Confirmed",
-                "rotation": 0 if best_rotation else 1,
+                "rotation": 0 if best_rotation else 1,  # 0 = หมุน, 1 = ไม่หมุน
                 "support": best_support,
                 "exceeds_end_z": False,
                 "message": f"Support: {best_support:.2f}" ,
@@ -290,7 +290,7 @@ def place_box_in_container(container: Container, box: Box, optional_check: str =
         if optional_check == "op1":
             return {
                 "status": "OutOfContainer",
-                "rotation": 0 if best_rotation else 1,
+                "rotation": 0 if best_rotation else 1,  # 0 = หมุน, 1 = ไม่หมุน
                 "support": best_support,
                 "exceeds_end_z": True,
                 "message": f"Support: {best_support:.2f}" + height_note,

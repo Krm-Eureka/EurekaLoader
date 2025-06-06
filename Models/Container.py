@@ -19,7 +19,6 @@ class Container:
         self.length = length
         self.width = width
         self.height = height
-        self.color = color if ContainerType == "1" else "brown"  # ถ้าเป็น F5 ให้ใช้สีขาว
         self.pallet = pallet  
         self.pallet_height = pallet.height
         self.boxes = []
@@ -29,57 +28,61 @@ class Container:
         self.end_y = self.start_y + self.length
         self.total_height = self.height + pallet.height
         self.end_z = self.total_height - TopSafe
-        self.Container_Gap = GAP if ContainerType == "1" else GAP + GapForF5
+        # self.color = color if ContainerType == "1" else ContainerType == "3": "none" else "brown"  # ถ้าเป็น F5 ให้ใช้สีน้ำตาล
+
+        if ContainerType == "1":
+            self.color = color
+        elif ContainerType == "3":
+            self.color = "yellow"
+        else:
+            self.color = "brown"  # ถ้าเป็น F5 ให้ใช้สีน้ำตาล
+
+        self.Container_Gap = GAP if ContainerType == ("1" ,"3") else GAP + GapForF5
         # self.can_over_end_z
 
     def can_place(self, box: Box, x: int, y: int, z: int, optional_check: str = "op2") -> Tuple[bool, str]:
-        """Check if a box can be placed at the given position."""
-        # ตรวจสอบว่ากล่องมีขนาดที่ถูกต้องหรือไม่
         box_end_x = x + box.length
         box_end_y = y + box.width
         box_end_z = z + box.height
 
-    # ตรวจสอบขอบเขตพื้นฐาน
+        # ตรวจสอบขอบเขต
         out_of_bounds = (
             x < self.start_x + self.Container_Gap or
             y < self.start_y + self.Container_Gap or
-            z < 0 or
-            x + box.length > self.end_x - self.Container_Gap or
-            y + box.width > self.end_y - self.Container_Gap
-            )
-        # ถ้าเป็น op2 → เพิ่มตรวจความสูงด้วย
+            z < self.pallet_height or  # ป้องกันวางต่ำกว่าพาเลท
+            box_end_x > self.end_x - self.Container_Gap or
+            box_end_y > self.end_y - self.Container_Gap
+        )
         if optional_check == "op2":
-            out_of_bounds = (
-                x < self.start_x + self.Container_Gap or
-                y < self.start_y + self.Container_Gap or
-                z < 0 or
-                x + box.length > self.end_x - self.Container_Gap or
-                y + box.width > self.end_y - self.Container_Gap or
-                box_end_z > self.end_z
-            )
+            out_of_bounds = out_of_bounds or (box_end_z > (self.end_z- self.Container_Gap) )
             if out_of_bounds:
                 print(f"[op2 ❌ out_of_bounds] box_end_z={box_end_z:.1f} > end_z={self.end_z:.1f}, pos=({x},{y},{z})")
                 return False, "Out of container bounds"
-
-        # ถ้าเป็น op1 → ไม่ตรวจความสูง
-        if optional_check == "op1":
+        elif optional_check == "op1":
             if out_of_bounds:
                 print(f"❌ Box {box.sku} out of bounds: x={x}, y={y}, z={z}, end_z={box_end_z}")
                 return False, "Out of container bounds"
 
-
-        box.set_position(x, y, z)
-
-        # ตรวจสอบการชนกัน
+        # ตรวจสอบการชนกัน (set ตำแหน่งชั่วคราว, เรียก collides_with, แล้ว set กลับตำแหน่งเดิม)
+        old_pos = (box.x, box.y, box.z)
         for placed in self.boxes:
-            if box.collides_with(placed):
+            box.set_position(x, y, z)
+            collision = box.collides_with(placed)
+            box.set_position(*old_pos)
+            if collision:
+                print(f"[❌ Collision] {box.sku} at ({x},{y},{z}) collides with {placed.sku} at ({placed.x},{placed.y},{placed.z})")
                 return False, "Collision with another box"
 
-        # ตรวจสอบการรองรับ
-        if not box.is_supported(self.boxes, self.pallet_height):
+        # ตรวจสอบการรองรับ (set ตำแหน่งชั่วคราวเพื่อเช็ค support แล้ว set กลับ)
+        box.set_position(x, y, z)
+        supported = box.is_supported(self.boxes, self.pallet_height)
+        box.set_position(*old_pos)
+        if not supported:
             return False, "Box not supported from below"
-        
-        # ✅ เพิ่ม check หากล้นด้านบน เพื่อแสดงใน summary
+
+        # ทุกอย่างผ่าน set position จริง
+        box.set_position(x, y, z)
+                # ✅ เพิ่ม check หากล้นด้านบน เพื่อแสดงใน summary
         # 🔄 ตรวจสอบตามโหมด
         if optional_check == "op2":
             if box_end_z > self.end_z:
@@ -132,6 +135,23 @@ class Container:
             key=lambda pos: (pos[2], min_distance_to_corner(pos[0], pos[1]))
         )
 
+    # def check_all_collisions(self):
+    #     """ตรวจสอบว่ากล่องที่วางทั้งหมดไม่มีการชนกันเลย และ mark กล่องที่ซ้อนทับให้ is_collided=True"""
+    #     # เคลียร์ flag ก่อน
+    #     for b in self.boxes:
+    #         b.is_collided = False
+    #     collision_found = False
+    #     for i, box1 in enumerate(self.boxes):
+    #         for box2 in self.boxes[i+1:]:
+    #             if box1.collides_with(box2):
+    #                 box1.is_collided = True
+    #                 box2.is_collided = True
+    #                 print(f"❌ Collision: {box1.sku} at ({box1.x},{box1.y},{box1.z}) overlaps {box2.sku} at ({box2.x},{box2.y},{box2.z})")
+    #                 collision_found = True
+    #     if not collision_found:
+    #         print("✅ No collisions detected among placed boxes.")
+    #     return not collision_found
 
 
-    
+
+

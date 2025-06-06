@@ -27,6 +27,7 @@ class Box:
 
         # เก็บ field เสริมไว้ใน dict
         self.extra_fields = {k.lower(): v for k, v in extra_fields.items()}
+        self.is_collided = False  # สำหรับแสดงผลชนกัน
 
     def set_position(self, x: int, y: int, z: int):
         self.x, self.y, self.z = x, y, z

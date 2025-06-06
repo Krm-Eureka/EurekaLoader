@@ -229,6 +229,8 @@ class PackingApp:
                     container_type_str = "F15"
                 elif str(container_type) == "2":
                     container_type_str = "F5"
+                elif str(container_type) == "3":
+                    container_type_str ="Pallet"
                 else:
                     logging.error(f"Unknown container type {container_type}")
                     messagebox.showerror("Error", f"Unknown container type: {container_type}")
