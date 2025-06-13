@@ -9,13 +9,13 @@ config = configparser.ConfigParser()
 config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config.ini")
 config.read(config_path)
 REQUIRED_SUPPORT_RATIO = float(config.get("Container", "required_support_ratio", fallback=0.8))  # ค่า fallback เป็น 0.8
-
+BOX_MARGIN = int(config.get("Box","BoxMargin",fallback=7))
 class Box:
     def __init__(self, length: int, width: int, height: int, sku: str, priority: int, cv: str, wgt: float, **extra_fields):
         self.x = self.y = self.z = 0
-        self.length = length + int(5)
-        self.width = width + int(5)
-        self.height = height + int(5)
+        self.length = length + BOX_MARGIN
+        self.width = width + BOX_MARGIN
+        self.height = height
         self.sku = sku
         self.priority = priority
         self.cv = str(cv).strip()
@@ -63,3 +63,19 @@ class Box:
                     return True
 
         return False  # กล่องไม่ได้รับการรองรับเพียงพอ
+    
+    def calculate_support_ratio(self, placed_boxes: List["Box"], pallet_height: int) -> float:
+        """คำนวณ support ratio ด้านล่างของกล่อง"""
+        if self.z <= pallet_height:
+            return 1.0  # อยู่บนพาเลท = รองรับ 100%
+
+        support_area = 0
+        total_area = self.length * self.width
+
+        for b in placed_boxes:
+            if abs(b.z + b.height - self.z) < 1e-6:  # ต้องสัมผัสด้านล่าง
+                overlap_x = max(0, min(self.x + self.length, b.x + b.length) - max(self.x, b.x))
+                overlap_y = max(0, min(self.y + self.width, b.y + b.width) - max(self.y, b.y))
+                support_area += overlap_x * overlap_y
+
+        return support_area / total_area if total_area > 0 else 0.0

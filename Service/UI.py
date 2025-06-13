@@ -19,7 +19,7 @@ import os
 import logging
 import time
 import tkinter.simpledialog as simpledialog
-from Service.Visualization import draw_3d_boxes_with_summary, place_box_in_container, draw_box, draw_container
+from Service.Visualization import place_box_in_container2, draw_3d_boxes_with_summary, place_box_in_container, draw_box, draw_container, place_box_human_like
 
 
 class TextHandler(logging.Handler):
@@ -63,13 +63,14 @@ class PackingApp:
         self.base_dir = config.get("Paths", "base_dir")
         default_mode = config.get("AppSettings", "default_mode", fallback="op1")  # โหลดจาก config.ini
         self.less_utilization = float(config.get("AppSettings", "utilization", fallback="80.0"))# โหลดจาก config.ini
+        VERSION = str(config.get("AppSettings", "Version"))# โหลดจาก config.ini
         self.ContainerGap = float(config.get("Container", "gap", fallback="5")) # โหลดจาก config.ini
         self.mode_var = tk.StringVar(value=default_mode)  # ตั้งค่าจากไฟล์แทนการ hardcode
 
         self.master = master
         self.start_base_dir = start_base_dir
         self.is_browse_open = False  # ตัวแปรสถานะสำหรับตรวจสอบการเปิด Browse
-        master.title("Eureka Loader Application")
+        master.title(f"Eureka Loader Application - {VERSION}")
 
         # เพิ่มการยืนยันก่อนปิดโปรแกรม
         self.master.protocol("WM_DELETE_WINDOW", self.on_closing)
@@ -333,10 +334,12 @@ class PackingApp:
     def calculate_utilization(self, box: Box, container: Container) -> float:
         """คำนวณเปอร์เซ็นต์การใช้พื้นที่ของกล่องในคอนเทนเนอร์."""
         box_volume = box.length * box.width * box.height
+        Available_width =container.width - (2 * self.ContainerGap)
+        Available_length = container.length - (2 * self.ContainerGap)
         container_volume = (
-            (container.length - self.ContainerGap) *
-            (container.width - self.ContainerGap) *
-            container.end_z
+            Available_length *
+            Available_width *
+            container.height
         )
         return (box_volume / container_volume) * 100 if container_volume > 0 else 0.0
 
@@ -550,7 +553,9 @@ class PackingApp:
                 box_wgt = box.wgt
                 ogw = box.width
                 ogl = box.length
-                result = place_box_in_container(self.container, box, optional_check="op2")
+                result = place_box_in_container2(self.container, box)
+                # result = place_box_human_like(self.container, box)
+                # result = place_box_in_container(self.container, box, optional_check="op2")
                 logging.info(f"[OP2]📦 Result for {box.sku}: {result['status']} | R={result['rotation']} | Exceeds height? {result.get('exceeds_end_z', False)} | Reason: {result['message']}")
                 out = 2 if result["exceeds_end_z"] else (1 if result["status"] == "Confirmed" else 2)
                 cube_utilization = 0
@@ -567,7 +572,7 @@ class PackingApp:
                     cube_utilizations_list.append(percent_cube) 
                     self.summary_text.insert(
                         tk.END,
-                        f"Box {i+1} (SKU: {box.sku})\nplaced at x={box.x}, y={box.y}, z={box.z} \nwith Rotation={result['rotation']} | Reason: {result['message']}\n",
+                        f"Box {i+1} (SKU: {box.sku})\nplaced at x={box.x}, y={box.y}, z={box.z} \nwith Rotation={result['rotation']} \nReason: {result['message']}\n",
                     )
                     
                     x = round(box.x, 2)
@@ -609,10 +614,10 @@ class PackingApp:
                 utilization = round(sum(cube_utilizations_list), 2)
 # แสดงผลสรุปการวางกล่องใน Container
                 self.insert_summary_text(placed_count, failed_boxes, utilization)
-                for box_info in failed_boxes:
-                    self.summary_text.insert(
-                        tk.END, f"  🚫   SKU: {box_info[0]} failed due to: {box_info[-1]}\n"
-                    )
+                # for box_info in failed_boxes:
+                #     self.summary_text.insert(
+                #         tk.END, f"  🚫   SKU: {box_info[0]} failed due to: {box_info[-1]}\n"
+                #     )
                 self.summary_text.see(tk.END)
                 logging.info(f"[OP2]📋 Creating placed_df with {len(placed_boxes_info)} rows")
     # เพิ่ม "Truck #1" เป็นแถวแรกใน placed_boxes_info

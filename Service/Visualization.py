@@ -1,12 +1,13 @@
 import configparser
 import os
+from rtree import index
 import numpy as np
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from Models.Box import Box
 from Models.Container import Container
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
-from typing import List
+from typing import List, Tuple
 # from Service.UI import run_packing_op1
 import logging
 
@@ -26,6 +27,7 @@ support_priority_levels = [
 ]
 support_priority_levels.append(min_support_ratio)
 support_priority_levels = sorted(support_priority_levels, reverse=True)  # เรียงจากมากไปน้อย
+last_success_positions = []  # global memory for previously successful placements
 
 def draw_3d_boxes(container: Container, ax):
     """Draw all boxes in the container in 3D."""
@@ -342,3 +344,162 @@ def is_stable_platform(box: Box, placed_boxes: List[Box], pallet_height: int) ->
                 stable_blocks += 1
 
     return stable_blocks >= 1
+
+def place_box_human_like(container: Container, box: Box, optional_check: str = "op2"):
+    def calculate_support_ratio(box: Box) -> float:
+        support_area = 0
+        total_area = box.length * box.width
+        if box.z <= container.pallet_height:
+            return 1.0
+        for b in container.boxes:
+            if abs(b.z + b.height - box.z) < 1e-6:
+                overlap_x = max(0, min(box.x + box.length, b.x + b.length) - max(box.x, b.x))
+                overlap_y = max(0, min(box.y + box.width, b.y + b.width) - max(box.y, b.y))
+                support_area += overlap_x * overlap_y
+        return support_area / total_area if total_area > 0 else 0.0
+
+    def prioritize_nearby_positions(placed: Box) -> List[Tuple[int, int]]:
+        candidates = set()
+        for dx in [0, placed.length]:
+            for dy in [0, placed.width]:
+                x, y = placed.x + dx, placed.y + dy
+                candidates.add((x, y))
+        return sorted(list(candidates), key=lambda pos: (pos[1], pos[0]))  # 🔄 sort by y, then x
+
+    max_z = container.end_z if optional_check == "op2" else container.total_height
+    tried_positions = set()
+
+    # 🔰 Try first box at corner
+    if not container.boxes:
+        for rotation in [False, True]:
+            original_length, original_width = box.length, box.width
+            if rotation:
+                box.length, box.width = original_width, original_length
+
+            x = int(container.start_x + container.Container_Gap)
+            y = int(container.start_y + container.Container_Gap)
+            box.set_position(x, y, container.pallet_height)
+
+            can_place, reason = container.can_place(box, x, y, container.pallet_height, optional_check)
+            if can_place and has_vertical_clearance(box, container.boxes, container.height):
+                container.place_box(box)
+                support = calculate_support_ratio(box)
+                last_success_positions.append((x, y, container.pallet_height, rotation))
+                print(f"[HumanLike ✅] Placed FIRST {box.sku} at ({x},{y},{container.pallet_height}) R={rotation}")
+                return {
+                    "status": "Confirmed",
+                    "rotation": 0 if rotation else 1,
+                    "support": support,
+                    "exceeds_end_z": False,
+                    "message": f"Human-like first placed with support {support:.2f}"
+                }
+            box.length, box.width = original_length, original_width
+
+    z_levels = sorted(set(b.z + b.height for b in container.boxes))
+    z_levels.insert(0, container.pallet_height)
+
+    for z in z_levels:
+        if z + box.height > max_z:
+            continue
+        for placed in sorted(container.boxes, key=lambda b: (b.y, b.x)):
+            for x, y in prioritize_nearby_positions(placed):
+                for rotation in [False, True]:
+                    if (x, y, z, rotation) in tried_positions:
+                        continue
+                    tried_positions.add((x, y, z, rotation))
+
+                    original_length, original_width = box.length, box.width
+                    if rotation:
+                        box.length, box.width = original_width, original_length
+                    box.set_position(x, y, z)
+
+                    can_place, reason = container.can_place(box, x, y, z, optional_check)
+                    if not can_place:
+                        box.length, box.width = original_length, original_width
+                        continue
+
+                    support = calculate_support_ratio(box)
+                    if support >= min_support_ratio and has_vertical_clearance(box, container.boxes, container.height):
+                        container.place_box(box)
+                        last_success_positions.append((x, y, z, rotation))
+                        print(f"[HumanLike ✅] Placed {box.sku} at ({x},{y},{z}) R={rotation}")
+                        return {
+                            "status": "Confirmed",
+                            "rotation": 0 if rotation else 1,
+                            "support": support,
+                            "exceeds_end_z": False,
+                            "message": f"Human-like placed with support {support:.2f}"
+                        }
+                    box.length, box.width = original_length, original_width
+
+    print(f"[HumanLike ❌] No position found for {box.sku}")
+    return {
+        "status": "Failed",
+        "rotation": -1,
+        "support": 0.0,
+        "exceeds_end_z": False,
+        "message": "Human-like placement failed"
+    }
+    
+def place_box_in_container2(container: Container, box: Box, optional_check: str = "op2"):
+    def calculate_support_ratio(box: Box, placed_boxes: List[Box], pallet_height: int) -> float:
+        if box.z <= pallet_height:
+            return 1.0
+        support_area = 0
+        total_area = box.length * box.width
+        for b in placed_boxes:
+            if abs(b.z + b.height - box.z) < 1e-6:
+                overlap_x = max(0, min(box.x + box.length, b.x + b.length) - max(box.x, b.x))
+                overlap_y = max(0, min(box.y + box.width, b.y + b.width) - max(box.y, b.y))
+                support_area += overlap_x * overlap_y
+        return support_area / total_area if total_area > 0 else 0.0
+
+    tried_positions = set()
+    candidate_positions = sorted(
+        container.generate_candidate_positions(),
+        key=lambda pos: (pos[2], pos[1], pos[0])  # Z ต่ำสุดก่อน แล้ว Y แล้ว X
+    )
+
+    for x, y, z in candidate_positions:
+        if z + box.height > container.end_z and optional_check == "op2":
+            continue
+        for rotation in [False, True]:
+            if (x, y, z, rotation) in tried_positions:
+                continue
+            tried_positions.add((x, y, z, rotation))
+
+            original_length, original_width = box.length, box.width
+            if rotation:
+                box.length, box.width = original_width, original_length
+
+            box.set_position(x, y, z)
+            can_place, reason = container.can_place(box, x, y, z, optional_check)
+
+            if not can_place:
+                box.length, box.width = original_length, original_width
+                continue
+
+            support_ratio = calculate_support_ratio(box, container.boxes, container.pallet_height)
+            clearance_ok = has_vertical_clearance(box, container.boxes, container.height)
+
+            if support_ratio >= min_support_ratio and clearance_ok:
+                container.place_box(box)
+                last_success_positions.append((x, y, z, rotation))
+                print(f"[GridLike ✅] Placed {box.sku} at ({x},{y},{z}) R={rotation}")
+                return {
+                    "status": "Confirmed",
+                    "rotation": 0 if rotation else 1,
+                    "support": support_ratio,
+                    "exceeds_end_z": False,
+                    "message": f"Support: {support_ratio:.2f}"
+                }
+            box.length, box.width = original_length, original_width
+
+    print(f"[GridLike ❌] No position found for {box.sku}")
+    return {
+        "status": "Failed",
+        "rotation": -1,
+        "support": 0.0,
+        "exceeds_end_z": False,
+        "message": "No suitable position found"
+    }
