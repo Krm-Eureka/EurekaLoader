@@ -19,7 +19,7 @@ import os
 import logging
 import time
 import tkinter.simpledialog as simpledialog
-from Service.Visualization import place_box_in_container2, draw_3d_boxes_with_summary, place_box_in_container, draw_box, draw_container, place_box_human_like
+from Service.Visualization import place_box_hybrid, draw_3d_boxes_with_summary, place_box_in_container, draw_box, draw_container, place_box_human_like
 
 
 class TextHandler(logging.Handler):
@@ -553,7 +553,7 @@ class PackingApp:
                 box_wgt = box.wgt
                 ogw = box.width
                 ogl = box.length
-                result = place_box_in_container2(self.container, box)
+                result = place_box_hybrid(self.container, box)
                 # result = place_box_human_like(self.container, box)
                 # result = place_box_in_container(self.container, box, optional_check="op2")
                 logging.info(f"[OP2]📦 Result for {box.sku}: {result['status']} | R={result['rotation']} | Exceeds height? {result.get('exceeds_end_z', False)} | Reason: {result['message']}")
