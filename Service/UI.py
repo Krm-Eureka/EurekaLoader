@@ -19,8 +19,8 @@ import os
 import logging
 import time
 import tkinter.simpledialog as simpledialog
-from Service.Visualization import place_box_hybrid, draw_3d_boxes_with_summary, place_box_in_container, draw_box, draw_container, place_box_human_like
-
+from Service.Visualization import  draw_3d_boxes_with_summary,  draw_box, draw_container
+from Service.placeFeature import place_box_hybrid, place_box_in_container, place_box_human_like
 
 class TextHandler(logging.Handler):
     """Custom logging handler to redirect logs to a Tkinter Text widget."""
