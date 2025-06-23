@@ -28,10 +28,10 @@ class Container:
         self.boxes = []
 
         # คัดลอกค่าตั้งต้นจาก config
-        gap_start_x = GAP_START_X
-        gap_end_x = GAP_END_X
-        gap_start_y = GAP_START_Y
-        gap_end_y = GAP_END_Y
+        self.gap_start_x = GAP_START_X
+        self.gap_end_x = GAP_END_X
+        self.gap_start_y = GAP_START_Y
+        self.gap_end_y = GAP_END_Y
 
         # ปรับค่าตามประเภท container
         if ContainerType == "1":  # F15
@@ -48,10 +48,10 @@ class Container:
         center_x = (pallet.width - self.width) / 2
         center_y = (pallet.length - self.length) / 2
 
-        self.start_x = center_x + gap_start_x
-        self.end_x = center_x + self.width - gap_end_x
-        self.start_y = center_y + gap_start_y
-        self.end_y = center_y + self.length - gap_end_y
+        self.start_x = center_x + self.gap_start_x
+        self.end_x = center_x + self.width - self.gap_end_x
+        self.start_y = center_y + self.gap_start_y
+        self.end_y = center_y + self.length - self.gap_end_y
 
         self.total_height = self.height + pallet.height
         self.end_z = self.total_height - TopSafe
@@ -147,8 +147,11 @@ class Container:
                 (self.end_x, self.end_y),
             ]
             return min(((x - cx) ** 2 + (y - cy) ** 2) ** 0.5 for cx, cy in corners)
-
+        # return sorted(
+        #     positions,
+        #     key=lambda pos: (pos[2], distance_to_edge(pos[0], pos[1]), pos[0], pos[1])
+        # )
         return sorted(
-            positions,
-            key=lambda pos: (pos[2], distance_to_edge(pos[0], pos[1]), pos[0], pos[1])
-        )
+                        positions,
+                        key=lambda pos: (pos[2], pos[0], pos[1])  # Z → X → Y
+                    )

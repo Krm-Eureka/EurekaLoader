@@ -64,7 +64,11 @@ class PackingApp:
         default_mode = config.get("AppSettings", "default_mode", fallback="op1")  # โหลดจาก config.ini
         self.less_utilization = float(config.get("AppSettings", "utilization", fallback="80.0"))# โหลดจาก config.ini
         VERSION = str(config.get("AppSettings", "Version"))# โหลดจาก config.ini
-        self.ContainerGap = float(config.get("Container", "gap", fallback="5")) # โหลดจาก config.ini
+        # self.ContainerGap = float(config.get("Container", "gap", fallback="5")) # โหลดจาก config.ini
+        self.GAP_START_X = int(config.get("Container", "GapStartX", fallback=5))
+        self.GAP_END_X = int(config.get("Container", "GapEndX", fallback=5))
+        self.GAP_START_Y = int(config.get("Container", "GapStartY", fallback=5))
+        self.GAP_END_Y = int(config.get("Container", "GapEndY", fallback=5))
         self.mode_var = tk.StringVar(value=default_mode)  # ตั้งค่าจากไฟล์แทนการ hardcode
 
         self.master = master
@@ -333,13 +337,13 @@ class PackingApp:
 
     def calculate_utilization(self, box: Box, container: Container) -> float:
         """คำนวณเปอร์เซ็นต์การใช้พื้นที่ของกล่องในคอนเทนเนอร์."""
-        box_volume = box.length * box.width * box.height
-        Available_width =container.width - (2 * self.ContainerGap)
-        Available_length = container.length - (2 * self.ContainerGap)
+        box_volume = ((box.length) * (box.width) * (box.height))
+        Available_width = container.width - (self.GAP_START_X + self.GAP_END_X)
+        Available_length = container.length - (self.GAP_START_Y + self.GAP_END_Y)
         container_volume = (
             Available_length *
             Available_width *
-            container.height
+            (container.height)
         )
         return (box_volume / container_volume) * 100 if container_volume > 0 else 0.0
 

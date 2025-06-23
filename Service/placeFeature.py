@@ -256,105 +256,88 @@ def place_box_hybrid(container: Container, box: Box, optional_check: str = "op2"
                 support_area += overlap_x * overlap_y
         return support_area / total_area if total_area > 0 else 0.0
 
-    def distance_to_edge(x: int, y: int) -> float:
-        dx = min(x - container.start_x, container.end_x - x)
-        dy = min(y - container.start_y, container.end_y - y)
-        return min(dx, dy)
-
-    def count_adjacent_xy(box: Box) -> int:
-        margin = 2
-        count = 0
-        for b in container.boxes:
-            if abs(b.z - box.z) > 1e-6:
-                continue
+    def has_vertical_clearance(box: Box, placed_boxes: List[Box], container_height: int) -> bool:
+        box_top = box.z + box.height
+        for other in placed_boxes:
             if (
-                abs(b.x + b.length - box.x) < margin or
-                abs(box.x + box.length - b.x) < margin or
-                abs(b.y + b.width - box.y) < margin or
-                abs(box.y + box.width - b.y) < margin
+                other.z >= box_top and
+                not (
+                    box.x + box.length <= other.x or
+                    box.x >= other.x + other.length or
+                    box.y + box.width <= other.y or
+                    box.y >= other.y + other.width
+                )
             ):
-                count += 1
-        return count
+                return False
+        if not box.is_supported(placed_boxes, container.pallet_height):
+            return False
+        return True
 
     tried_positions = set()
-    candidate_positions = container.generate_candidate_positions()
+    valid_placements = []
 
-    # 🔁 จัดกลุ่มตาม Z แล้วพิจารณาทีละชั้น Z ต่ำก่อน
-    z_groups = {}
-    for pos in candidate_positions:
-        z_groups.setdefault(pos[2], []).append(pos)
-    for z in sorted(z_groups):
-        # positions = sorted(z_groups[z], key=lambda pos: distance_to_edge(pos[0], pos[1]))
-        positions = sorted(z_groups[z], key=lambda pos: (z, distance_to_edge(pos[0], pos[1]), pos[0], pos[1]))
+    all_positions = container.generate_candidate_positions()
+    for b in container.boxes:
+        for dx in [-box.length, b.length]:
+            for dy in [-box.width, b.width]:
+                all_positions.append((int(b.x + dx), int(b.y + dy), int(b.z)))
 
+    candidate_positions = sorted(set(all_positions), key=lambda pos: (pos[2], pos[1], pos[0]))
 
-        best_result = None
-        best_score = -float("inf")
+    for x, y, z in candidate_positions:
+        for rotation in [True, False]:
+            key = (x, y, z, rotation)
+            if key in tried_positions:
+                continue
+            tried_positions.add(key)
 
-        for x, y, _ in positions:
-            for rotation in [True, False]:
-                if (x, y, z, rotation) in tried_positions:
-                    continue
-                tried_positions.add((x, y, z, rotation))
-
-                original_length, original_width = box.length, box.width
-                if rotation:
-                    box.length, box.width = original_width, original_length
-
-                box.set_position(x, y, z)
-                can_place, reason = container.can_place(box, x, y, z, optional_check)
-                if not can_place:
-                    box.length, box.width = original_length, original_width
-                    continue
-
-                support_ratio = calculate_support_ratio(box)
-                clearance_ok = has_vertical_clearance(box, container.boxes, container.height)
-                if not clearance_ok or support_ratio < min_support_ratio:
-                    box.length, box.width = original_length, original_width
-                    continue
-
-                if (box.x + box.length > container.end_x or
-                    box.y + box.width > container.end_y or
-                    box.z + box.height > container.end_z):
-                    box.length, box.width = original_length, original_width
-                    continue
-
-                adjacent_count = count_adjacent_xy(box)
-                z_bonus = 1.0 - (z / container.total_height)
-                edge_penalty = 1.0 - min(1.0, adjacent_count * 0.3)
-                score = (support_ratio * 1.5) + (adjacent_count * 0.1) + z_bonus - edge_penalty
-
-                final_check, _ = container.can_place(box, x, y, z, optional_check)
-                if not final_check:
-                    box.length, box.width = original_length, original_width
-                    continue
-
-                if score > best_score:
-                    best_score = score
-                    best_result = {
-                        "x": x, "y": y, "z": z,
-                        "rotation": rotation,
-                        "support": support_ratio,
-                        "adjacent": adjacent_count,
-                        "score": score
-                    }
-
-                box.length, box.width = original_length, original_width
-
-        if best_result:
-            if best_result["rotation"]:
+            original_length, original_width = box.length, box.width
+            if rotation:
                 box.length, box.width = box.width, box.length
-            box.set_position(best_result["x"], best_result["y"], best_result["z"])
-            container.place_box(box)
-            last_success_positions.append((best_result["x"], best_result["y"], best_result["z"], best_result["rotation"]))
-            print(f"[Hybrid ✅] Placed {box.sku} at ({box.x},{box.y},{box.z}) R={best_result['rotation']} | Score={best_result['score']:.2f}")
-            return {
-                "status": "Confirmed",
-                "rotation": 0 if best_result["rotation"] else 1,
-                "support": best_result["support"],
-                "exceeds_end_z": False,
-                "message": f"Placed at Z={best_result['z']} with support {best_result['support']:.2f} and {best_result['adjacent']} neighbors"
-            }
+
+            if (
+                x < container.start_x or
+                y < container.start_y or
+                z < container.pallet_height or
+                x + box.length > container.end_x or
+                y + box.width > container.end_y or
+                z + box.height > container.end_z
+            ):
+                box.length, box.width = original_length, original_width
+                continue
+
+            box.set_position(x, y, z)
+            can_place, reason = container.can_place(box, x, y, z, optional_check)
+            if not can_place:
+                box.length, box.width = original_length, original_width
+                continue
+
+            support_ratio = calculate_support_ratio(box)
+            clearance_ok = has_vertical_clearance(box, container.boxes, container.height)
+            if not clearance_ok or support_ratio < min_support_ratio:
+                box.length, box.width = original_length, original_width
+                continue
+
+            valid_placements.append((z, -support_ratio, not rotation, x, y, rotation))
+            box.length, box.width = original_length, original_width
+
+    if valid_placements:
+        valid_placements.sort()
+        z, neg_support, not_rot, x, y, rotation = valid_placements[0]
+        support_ratio = -neg_support
+        if rotation:
+            box.length, box.width = box.width, box.length
+        box.set_position(x, y, z)
+        container.place_box(box)
+        last_success_positions.append((x, y, z, rotation))
+        print(f"[Hybrid ✅] Placed {box.sku} at ({x},{y},{z}) R={rotation}")
+        return {
+            "status": "Confirmed",
+            "rotation": 0 if rotation else 1,
+            "support": support_ratio,
+            "exceeds_end_z": False,
+            "message": f"Placed at Z={z} with support {support_ratio:.2f}"
+        }
 
     print(f"[Hybrid ❌] No valid position found for {box.sku}")
     return {
