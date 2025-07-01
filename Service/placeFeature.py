@@ -8,6 +8,7 @@ from Service.shared_state import last_success_positions
 config = configparser.ConfigParser()
 config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config.ini")
 config.read(config_path, encoding="utf-8")
+prefer_rotation_first = config.getboolean("PlaceMent", "PREFER_ROTATION_FIRST", fallback=True)
 min_support_ratio = float(config.get("Container", "required_support_ratio", fallback="0.8"))
 
 def has_vertical_clearance(box: Box, placed_boxes: List[Box], container_height: int) -> bool:
@@ -284,7 +285,8 @@ def place_box_hybrid(container: Container, box: Box, optional_check: str = "op2"
     candidate_positions = sorted(set(all_positions), key=lambda pos: (pos[2], pos[1], pos[0]))
 
     for x, y, z in candidate_positions:
-        for rotation in [False, True]:
+        rotation_order = [True, False] if prefer_rotation_first else [False, True]
+        for rotation in rotation_order:
             key = (x, y, z, rotation)
             if key in tried_positions:
                 continue
@@ -316,8 +318,12 @@ def place_box_hybrid(container: Container, box: Box, optional_check: str = "op2"
             if not clearance_ok or support_ratio < min_support_ratio:
                 box.length, box.width = original_length, original_width
                 continue
-
-            valid_placements.append((z, -support_ratio, rotation, x, y, rotation))
+            
+            rotation_sort_value = 0 if rotation else 1 
+            if prefer_rotation_first:
+                rotation_sort_value = 1 - rotation_sort_value  
+                
+            valid_placements.append((z, -support_ratio, rotation_sort_value, x, y, rotation))
             box.length, box.width = original_length, original_width
 
     if valid_placements:
