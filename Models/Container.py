@@ -39,10 +39,10 @@ class Container:
         elif ContainerType == "3":  # Pallet
             self.color = "yellow"
         else:  # F5
-            gap_start_x += GapForF5
-            gap_end_x += GapForF5
-            gap_start_y += GapForF5
-            gap_end_y += GapForF5
+            self.gap_start_x += GapForF5
+            self.gap_end_x += GapForF5
+            self.gap_start_y += GapForF5
+            self.gap_end_y += GapForF5
             self.color = "brown"
 
         center_x = (pallet.width - self.width) / 2
