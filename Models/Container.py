@@ -13,6 +13,8 @@ config.read(config_path, encoding="utf-8")
 
 TopSafe = float(config.get("Container", "safeTop", fallback=20))
 GapForF5 = int(config.get("Container", "F5", fallback=20))
+F5_SAFE_END_Y = int(config.get("Container", "F5_SAFE_END_Y", fallback=5))
+F5_SAFE_END_X = int(config.get("Container", "F5_SAFE_END_X", fallback=5))
 GAP_START_X = int(config.get("Container", "GapStartX", fallback=5))
 GAP_END_X = int(config.get("Container", "GapEndX", fallback=5))
 GAP_START_Y = int(config.get("Container", "GapStartY", fallback=5))
@@ -40,9 +42,9 @@ class Container:
             self.color = "yellow"
         else:  # F5
             self.gap_start_x += GapForF5
-            self.gap_end_x += GapForF5
+            self.gap_end_x += GapForF5 + F5_SAFE_END_Y
             self.gap_start_y += GapForF5
-            self.gap_end_y += GapForF5
+            self.gap_end_y += GapForF5 + F5_SAFE_END_X
             self.color = "brown"
 
         center_x = (pallet.width - self.width) / 2
