@@ -352,3 +352,262 @@ def place_box_hybrid(container: Container, box: Box, optional_check: str = "op2"
         "exceeds_end_z": False,
         "message": "No suitable position found"
     }
+    
+def place_box_hybrid2(container: Container, box: Box, optional_check: str = "op2"):
+    """
+    เหมือน place_box_hybrid เดิมทุกอย่าง
+    + เพิ่ม SNAP:
+        • ถ้าพบจุดวางได้ → ทำ compaction SNAP: ขึ้น (Y-) แล้วซ้าย (X-) แบบกระโดด โดยคง support ≥ floor
+        • ถ้ายังติด clearance (มีเงาบังด้านบน) → SNAP พ้นเงา (ขวา→ลง→ซ้าย→ขึ้น) แล้ว compaction SNAP ต่อ
+    """
+
+    # ---------- helpers ----------
+    def calculate_support_ratio(bx: Box) -> float:
+        if bx.z <= container.pallet_height:
+            return 1.0
+        support_area = 0
+        total_area = bx.length * bx.width
+        for pb in container.boxes:
+            if abs(pb.z + pb.height - bx.z) < 1e-6:
+                ox = max(0, min(bx.x + bx.length, pb.x + pb.length) - max(bx.x, pb.x))
+                oy = max(0, min(bx.y + bx.width,  pb.y + pb.width)  - max(bx.y, pb.y))
+                support_area += ox * oy
+        return support_area / total_area if total_area > 0 else 0.0
+
+    def blockers_above(bx: Box):
+        """รายการกล่องที่ 'บังด้านบน' (อยู่สูงกว่า top และ footprint ทับกัน)"""
+        top = bx.z + bx.height
+        blks = []
+        for ob in container.boxes:
+            if ob.z >= top and not (
+                bx.x + bx.length <= ob.x or
+                bx.x >= ob.x + ob.length or
+                bx.y + bx.width <= ob.y or
+                bx.y >= ob.y + ob.width
+            ):
+                blks.append(ob)
+        return blks
+
+    def compaction_snap(bx: Box, support_floor: float):
+        """
+        SNAP อัดชิด:
+          1) SNAP ขึ้น: y -> max( start_y, max(ob.y+ob.width ที่ทับช่วง X) ) ถ้ายังผ่านทุกเงื่อนไข
+             ทำซ้ำเป็น 'จุดกระโดด' จนไม่มีการขยับเพิ่มได้
+          2) SNAP ซ้าย: x -> max( start_x, max(ob.x+ob.length ที่ทับช่วง Y) ) ด้วยหลักเดียวกัน
+        คง support ≥ support_floor และ ≥ min_support_ratio ตลอด
+        """
+        moved = True
+        while moved:
+            moved = False
+            # --- SNAP ขึ้น (ลด Y) ---
+            x0, x1 = bx.x, bx.x + bx.length
+            y_target = container.start_y
+            for ob in container.boxes:
+                if int(ob.z) != int(bx.z):
+                    continue
+                # overlap ใน X?
+                if not (x1 <= ob.x or x0 >= ob.x + ob.length):
+                    y_target = max(y_target, ob.y + ob.width)
+            y_target = min(bx.y, y_target)
+            if y_target < bx.y:
+                old = (bx.x, bx.y, bx.z)
+                bx.set_position(bx.x, y_target, bx.z)
+                if has_vertical_clearance(bx, container.boxes, container.height):
+                    ok, _ = container.can_place(bx, bx.x, bx.y, bx.z, optional_check)
+                    sup = calculate_support_ratio(bx)
+                    if ok and sup + 1e-9 >= support_floor and sup + 1e-9 >= min_support_ratio:
+                        moved = True
+                    else:
+                        bx.set_position(*old)
+
+            # --- SNAP ซ้าย (ลด X) ---
+            y0, y1 = bx.y, bx.y + bx.width
+            x_target = container.start_x
+            for ob in container.boxes:
+                if int(ob.z) != int(bx.z):
+                    continue
+                # overlap ใน Y?
+                if not (y1 <= ob.y or y0 >= ob.y + ob.width):
+                    x_target = max(x_target, ob.x + ob.length)
+            x_target = min(bx.x, x_target)
+            if x_target < bx.x:
+                old = (bx.x, bx.y, bx.z)
+                bx.set_position(x_target, bx.y, bx.z)
+                if has_vertical_clearance(bx, container.boxes, container.height):
+                    ok, _ = container.can_place(bx, bx.x, bx.y, bx.z, optional_check)
+                    sup = calculate_support_ratio(bx)
+                    if ok and sup + 1e-9 >= support_floor and sup + 1e-9 >= min_support_ratio:
+                        moved = True
+                    else:
+                        bx.set_position(*old)
+
+    def snap_clearance_once(bx: Box, direction: str) -> bool:
+        """
+        SNAP พ้นเงาด้านบน 1 ครั้งตามทิศ:
+          right: x -> max(ob.x+ob.length) ของ blockers ที่ทับช่วง Y
+          left : x -> min(ob.x) - bx.length
+          down : y -> max(ob.y+ob.width) ของ blockers ที่ทับช่วง X
+          up   : y -> min(ob.y) - bx.width
+        จากนั้นตรวจ clearance/can_place/support ≥ min แล้วคืน True ถ้าวางต่อได้
+        """
+        blks = blockers_above(bx)
+        if not blks:
+            return False
+
+        nx, ny, nz = bx.x, bx.y, bx.z
+        if direction == "right":
+            y0, y1 = ny, ny + bx.width
+            edge = nx
+            for ob in blks:
+                if not (y1 <= ob.y or y0 >= ob.y + ob.width):
+                    edge = max(edge, ob.x + ob.length)
+            nx = edge
+        elif direction == "left":
+            y0, y1 = ny, ny + bx.width
+            edge = nx
+            for ob in blks:
+                if not (y1 <= ob.y or y0 >= ob.y + ob.width):
+                    edge = min(edge, ob.x - bx.length)
+            nx = edge
+        elif direction == "down":
+            x0, x1 = nx, nx + bx.length
+            edge = ny
+            for ob in blks:
+                if not (x1 <= ob.x or x0 >= ob.x + ob.length):
+                    edge = max(edge, ob.y + ob.width)
+            ny = edge
+        else:  # "up"
+            x0, x1 = nx, nx + bx.length
+            edge = ny
+            for ob in blks:
+                if not (x1 <= ob.x or x0 >= ob.x + ob.length):
+                    edge = min(edge, ob.y - bx.width)
+            ny = edge
+
+        # guard ขอบเขต
+        if nx < container.start_x or ny < container.start_y:
+            return False
+        if nx + bx.length > container.end_x or ny + bx.width > container.end_y:
+            return False
+
+        old = (bx.x, bx.y, bx.z)
+        bx.set_position(int(nx), int(ny), nz)
+        if not has_vertical_clearance(bx, container.boxes, container.height):
+            bx.set_position(*old); return False
+        ok, _ = container.can_place(bx, bx.x, bx.y, bx.z, optional_check)
+        if not ok:
+            bx.set_position(*old); return False
+        if calculate_support_ratio(bx) + 1e-9 < min_support_ratio:
+            bx.set_position(*old); return False
+        return True
+
+    # ---------- ขั้นที่ 1: เหมือน hybrid (คง behavior) ----------
+    tried_positions = set()
+    valid_placements = []
+
+    all_positions = container.generate_candidate_positions()
+    for b in container.boxes:
+        for dx in [-box.length, b.length]:
+            for dy in [-box.width, b.width]:
+                all_positions.append((int(b.x + dx), int(b.y + dy), int(b.z)))
+
+    # คงการเรียงแบบ hybrid: Z → Y → X (น้อยสุดก่อน)
+    candidate_positions = sorted(set(all_positions), key=lambda pos: (pos[2], pos[1], pos[0]))
+
+    for x, y, z in candidate_positions:
+        rotation_order = [True, False] if prefer_rotation_first else [False, True]
+        for rotation in rotation_order:
+            key = (x, y, z, rotation)
+            if key in tried_positions:
+                continue
+            tried_positions.add(key)
+
+            L0, W0 = box.length, box.width
+            if rotation:
+                box.length, box.width = W0, L0
+
+            # ขอบเขต container/height
+            if (
+                x < container.start_x or
+                y < container.start_y or
+                z < container.pallet_height or
+                x + box.length > container.end_x or
+                y + box.width > container.end_y or
+                z + box.height > container.end_z
+            ):
+                box.length, box.width = L0, W0
+                continue
+
+            old_pos = (box.x, box.y, box.z)
+            box.set_position(x, y, z)
+
+            can_place, _ = container.can_place(box, x, y, z, optional_check)
+            sup = calculate_support_ratio(box)
+            clear_ok = has_vertical_clearance(box, container.boxes, container.height)
+
+            if clear_ok and can_place and sup + 1e-9 >= min_support_ratio:
+                # ✅ เหมือน hybrid เดิม: ผ่านแล้ว → เพิ่ม "SNAP compaction"
+                floor = sup
+                compaction_snap(box, support_floor=floor)
+                x2, y2 = box.x, box.y
+
+                rot_sort = 0 if rotation else 1
+                if prefer_rotation_first: rot_sort = 1 - rot_sort
+                valid_placements.append((z, -sup, rot_sort, x2, y2, rotation))
+
+                box.set_position(*old_pos); box.length, box.width = L0, W0
+                continue
+
+            # ❗ ถ้าติด clearance → ลอง SNAP พ้นเงา (ขวา→ลง→ซ้าย→ขึ้น) แล้ว compaction SNAP ต่อ
+            if not clear_ok and can_place:
+                placed = False
+                for dir_name in ("right", "down", "left", "up"):
+                    box.set_position(x, y, z)
+                    if snap_clearance_once(box, dir_name):
+                        # SNAP พ้นเงาแล้ว → compaction SNAP ต่อ พร้อมคง floor = support ณ จุดนี้
+                        floor2 = max(min_support_ratio, calculate_support_ratio(box))
+                        compaction_snap(box, support_floor=floor2)
+                        container.place_box(box)
+                        last_success_positions.append((box.x, box.y, box.z, rotation))
+                        print(f"[Hybrid2 ✅ SNAP] Placed {box.sku} via snap-{dir_name} at ({box.x},{box.y},{box.z}) R={rotation}")
+                        return {
+                            "status": "Confirmed",
+                            "rotation": 0 if rotation else 1,
+                            "support": calculate_support_ratio(box),
+                            "exceeds_end_z": False,
+                            "message": f"[Hybrid2] Snap-cleared '{dir_name}' + compaction SNAP"
+                        }
+                # SNAP ไม่สำเร็จ → รีเซ็ต
+                box.set_position(*old_pos); box.length, box.width = L0, W0
+                continue
+
+            # ไม่ผ่านตาม hybrid เดิมและไม่ติด clearance (support ไม่ถึง) → ข้าม
+            box.set_position(*old_pos); box.length, box.width = L0, W0
+
+    # ---------- วางผลลัพธ์ที่ดีที่สุด (เหมือน hybrid เดิม) ----------
+    if valid_placements:
+        valid_placements.sort()
+        z, neg_sup, not_rot, x_best, y_best, rotation = valid_placements[0]
+        support_ratio = -neg_sup
+        if rotation:
+            box.length, box.width = box.width, box.length
+        box.set_position(x_best, y_best, z)
+        container.place_box(box)
+        last_success_positions.append((x_best, y_best, z, rotation))
+        print(f"[Hybrid2 ✅] Placed {box.sku} at ({x_best},{y_best},{z}) R={rotation}")
+        return {
+            "status": "Confirmed",
+            "rotation": 0 if rotation else 1,
+            "support": support_ratio,
+            "exceeds_end_z": False,
+            "message": f"[Hybrid2] Placed with compaction SNAP at Z={z} (support {support_ratio:.2f})"
+        }
+
+    print(f"[Hybrid2 ❌] No valid position found for {box.sku} (with SNAPs)")
+    return {
+        "status": "Failed",
+        "rotation": -1,
+        "support": 0.0,
+        "exceeds_end_z": False,
+        "message": "[Hybrid2] No suitable position found (even with SNAP compaction/clearance)"
+    }

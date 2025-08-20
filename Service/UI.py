@@ -20,7 +20,7 @@ import logging
 import time
 import tkinter.simpledialog as simpledialog
 from Service.Visualization import  draw_3d_boxes_with_summary,  draw_box, draw_container
-from Service.placeFeature import place_box_hybrid, place_box_in_container, place_box_human_like
+from Service.placeFeature import place_box_hybrid, place_box_in_container, place_box_human_like,place_box_hybrid2
 
 class TextHandler(logging.Handler):
     """Custom logging handler to redirect logs to a Tkinter Text widget."""
@@ -43,6 +43,7 @@ class PackingApp:
         self.is_pipeline_running = False
         logging.info(f"Matplotlib backend: {matplotlib.get_backend()}")
         config, _ = load_config()
+
         if not matplotlib.get_backend().lower().startswith("tkagg"):
             logging.warning("⚠️ Current Matplotlib backend may not support GUI rendering properly.")
 
@@ -61,6 +62,8 @@ class PackingApp:
         # โหลด base_dir จาก config.ini
         config, _ = load_config()
         self.base_dir = config.get("Paths", "base_dir")
+        self.placement_algo = config.get("PlaceMent", "ALGORITHM", fallback="hybrid2").strip().lower()
+        logging.info(f"🧩 Placement algorithm (op2): {self.placement_algo}")
         default_mode = config.get("AppSettings", "default_mode", fallback="op1")  # โหลดจาก config.ini
         self.less_utilization = float(config.get("AppSettings", "utilization", fallback="80.0"))# โหลดจาก config.ini
         VERSION = str(config.get("AppSettings", "Version"))# โหลดจาก config.ini
@@ -557,7 +560,10 @@ class PackingApp:
                 box_wgt = box.wgt
                 ogw = box.width
                 ogl = box.length
-                result = place_box_hybrid(self.container, box)
+                # result = place_box_hybrid2(self.container, box)
+                result = self._call_placement(self.placement_algo, self.container, box, optional_check="op2")
+
+                # result = Try_place_Layer_base(self.container, box, optional_check="op2")
                 # result = place_box_human_like(self.container, box)
                 # result = place_box_in_container(self.container, box, optional_check="op2")
                 logging.info(f"[OP2]📦 Result for {box.sku}: {result['status']} | R={result['rotation']} | Exceeds height? {result.get('exceeds_end_z', False)} | Reason: {result['message']}")
@@ -920,3 +926,22 @@ class PackingApp:
             messagebox.showerror("Error", f"An error occurred: {e}")
             logging.error(f"[OP1] An error occurred: {e}")
 
+    def _call_placement(self, algo_name: str, container: Container, box: Box, optional_check: str = "op2"):
+        # map ชื่อแบบสั้น และรองรับชื่อเต็มด้วย
+        mapping = {
+            "hybrid2": place_box_hybrid2,
+            "place_box_hybrid2": place_box_hybrid2,
+            "hybrid": place_box_hybrid,
+            "place_box_hybrid": place_box_hybrid,
+            "human": place_box_human_like,
+            "place_box_human_like": place_box_human_like,
+            "basic": place_box_in_container,
+            "place_box_in_container": place_box_in_container,
+        }
+        fn = mapping.get((algo_name or "").lower(), place_box_hybrid)
+        try:
+            # ฟังก์ชันทั้งหมดรองรับพารามิเตอร์แบบเดียวกัน (container, box, optional_check)
+            return fn(container, box, optional_check=optional_check)
+        except TypeError:
+            # กันกรณีฟังก์ชันเก่าที่ไม่ได้รับ optional_check
+            return fn(container, box)
