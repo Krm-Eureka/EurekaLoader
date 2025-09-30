@@ -2,6 +2,7 @@ import matplotlib
 matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
 import tkinter as tk
+from tkinter import font as tkfont
 from tkinter import ttk 
 from threading import Thread
 import math
@@ -20,7 +21,7 @@ import logging
 import time
 import tkinter.simpledialog as simpledialog
 from Service.Visualization import  draw_3d_boxes_with_summary,  draw_box, draw_container
-from Service.placeFeature import place_box_hybrid, place_box_in_container, place_box_human_like,place_box_hybrid2
+from Service.placeFeature import place_box_hybrid, place_box_in_container, place_box_human_like,place_box_hybrid2,place_box_hybrid3
 
 class TextHandler(logging.Handler):
     """Custom logging handler to redirect logs to a Tkinter Text widget."""
@@ -180,6 +181,9 @@ class PackingApp:
         self.summary_frame.grid(row=2, column=0, columnspan=1, sticky="nsew", padx=10, pady=(5,10))
         self.summary_text = tk.Text(self.summary_frame, height=10, width=80, font=("Segoe UI", 8))
         self.summary_text.pack(fill=tk.BOTH, expand=True)
+        self.sku_big_font = tkfont.Font(family="Segoe UI", size=12, weight="bold")
+        self.summary_text.tag_configure("sku_big", font=self.sku_big_font, foreground="#c0392b")
+
         master.bind('<Return>', lambda event: self.run_full_packing_pipeline(self.mode_var.get()))  # โหลด → วาง → แสดงผล
         self.progress = ttk.Progressbar(self.summary_frame, orient="horizontal", mode="determinate")
         # self.progress.pack(fill="x", padx=10, pady=(5, 0))
@@ -479,19 +483,44 @@ class PackingApp:
             if isinstance(widget, tk.Frame):  # ลบทั้ง frame ที่ครอบปุ่ม
                 widget.destroy()
                 
+    # def insert_summary_text(self, placed_count: int, failed_boxes: list, utilization: float):
+    #     """แสดงสรุปผลการวางกล่องและ scroll ลงบรรทัดสุดท้ายใน summary_text"""
+    #     self.summary_text.insert(tk.END, "\nPlacement Summary:\n")
+    #     self.summary_text.insert(tk.END, f" 📊  Total boxes: {len(self.boxes_to_place)}\n")
+    #     self.summary_text.insert(tk.END, f" ✅  Placed boxes: {placed_count}\n")
+    #     self.summary_text.insert(tk.END, f" ❌ Failed to place: {len(failed_boxes)}\n")
+    #     self.summary_text.insert(tk.END, f" 📦 Utilization: {utilization:.2f}%\n")
+    #     self.summary_text.insert(tk.END, f"\n")
+    #     for box_info in failed_boxes:
+    #         self.summary_text.insert(
+    #             tk.END, f"  🚫   SKU: {box_info[0]} failed due to: {box_info[-1]}\n"
+    #         )
+    #     self.summary_text.see(tk.END)
     def insert_summary_text(self, placed_count: int, failed_boxes: list, utilization: float):
         """แสดงสรุปผลการวางกล่องและ scroll ลงบรรทัดสุดท้ายใน summary_text"""
         self.summary_text.insert(tk.END, "\nPlacement Summary:\n")
         self.summary_text.insert(tk.END, f" 📊  Total boxes: {len(self.boxes_to_place)}\n")
         self.summary_text.insert(tk.END, f" ✅  Placed boxes: {placed_count}\n")
         self.summary_text.insert(tk.END, f" ❌ Failed to place: {len(failed_boxes)}\n")
-        self.summary_text.insert(tk.END, f" 📦 Utilization: {utilization:.2f}%\n")
-        self.summary_text.insert(tk.END, f"\n")
-        for box_info in failed_boxes:
-            self.summary_text.insert(
-                tk.END, f"  🚫   SKU: {box_info[0]} failed due to: {box_info[-1]}\n"
-            )
+        self.summary_text.insert(tk.END, f" 📦 Utilization: {utilization:.2f}%\n\n")
+        if len(failed_boxes) > 0:  
+            start_idx = self.summary_text.index("end-1c")
+            self.summary_text.insert(tk.END, f"    ❌ {len(failed_boxes)} NG Free Roller ❌ \n")
+            end_idx = self.summary_text.index("end-1c")
+            self.summary_text.tag_add("sku_big", start_idx, end_idx)
+            from collections import Counter
+            # failed_boxes = [[sku, reason], [sku, reason], ...]
+            sku_counts = Counter([box_info[0] for box_info in failed_boxes])
+            for sku, count in sku_counts.items():
+                start_idx = self.summary_text.index("end-1c")
+                # แสดงผลรวม: 🚫 SKU: <รหัส> (x<count>)
+                self.summary_text.insert(tk.END, f"🚫   SKU: {sku}   x{count}\n")
+                end_idx = self.summary_text.index("end-1c")
+                self.summary_text.tag_add("sku_big", start_idx, end_idx)
         self.summary_text.see(tk.END)
+
+
+
   
     def run_packing_op2(self, container_type): #ไม่ล้น
         try:
@@ -931,6 +960,8 @@ class PackingApp:
         mapping = {
             "hybrid2": place_box_hybrid2,
             "place_box_hybrid2": place_box_hybrid2,
+            "hybrid3": place_box_hybrid3,
+            "place_box_hybrid3": place_box_hybrid3,
             "hybrid": place_box_hybrid,
             "place_box_hybrid": place_box_hybrid,
             "human": place_box_human_like,

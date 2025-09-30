@@ -2,7 +2,7 @@ import os
 import re
 import time
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from logging.handlers import BaseRotatingHandler
 from Service.config_manager import load_config
 
@@ -45,7 +45,7 @@ class MonthlyRotatingFileHandler(BaseRotatingHandler):
         return (dt1.year == dt2.year) and (dt1.month == dt2.month)
 
     def _compute_next_month_boundary(self, current_time):
-        dt = datetime.utcfromtimestamp(current_time) if self.utc else datetime.fromtimestamp(current_time)
+        dt = datetime.fromtimestamp(current_time, timezone.utc) if self.utc else datetime.fromtimestamp(current_time)
         year, month = dt.year, dt.month
         next_month = datetime(year + (month == 12), (month % 12) + 1, 1)
         return next_month.timestamp()
@@ -60,8 +60,7 @@ class MonthlyRotatingFileHandler(BaseRotatingHandler):
 
         # ชื่อไฟล์ของ "เดือนที่เพิ่งจบ" -> ย้ายเข้า archive_dir
         t = self.rolloverAt - 1  # ย้อน 1 วินาที เพื่อชัวร์ว่าเป็นเดือนก่อนหน้า
-        dt = datetime.utcfromtimestamp(t) if self.utc else datetime.fromtimestamp(t)
-
+        dt = datetime.fromtimestamp(t, timezone.utc) if self.utc else datetime.fromtimestamp(t)
         base_name = os.path.splitext(os.path.basename(self.baseFilename))[0]
         ext = os.path.splitext(self.baseFilename)[1]
         archived_name = f"{base_name}-{dt.strftime(self.suffix)}{ext}"
@@ -164,11 +163,13 @@ logging.debug("🐞 Debug log ready (monthly rotation).")
 # ลด noise ของ matplotlib
 logging.getLogger("matplotlib.font_manager").setLevel(logging.INFO)
 logging.debug("🐞 Matplotlib font manager debug log disabled.")
+print("📂 Log file (INFO):", info_log_path)
 
 
-# # บังคับ rollover ตอนนี้เลย
-# info_handler.doRollover()
-# debug_handler.doRollover()
 
-# logging.info("🔁 Forced monthly rollover (manual)")
-# print("Archive dir:", info_handler.archive_dir)
+# บังคับ rollover ตอนนี้เลย
+info_handler.doRollover()
+debug_handler.doRollover()
+
+logging.info("🔁 Forced monthly rollover (manual)")
+print("📂 Archive dir:", archive_dir)

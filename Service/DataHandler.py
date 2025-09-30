@@ -147,7 +147,6 @@ def export_results(placed_df):
         messagebox.showerror("Error", f"Error exporting results: {e}")
         logging.error(f"Error exporting results: {e}")
 
-
 def show_temporary_message(title: str, message: str, duration: int = 1000):
     """แสดงข้อความชั่วคราวในหน้าต่าง Toplevel"""
     root = tk.Toplevel()
